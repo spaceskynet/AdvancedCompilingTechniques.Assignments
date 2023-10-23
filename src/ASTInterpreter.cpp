@@ -103,6 +103,43 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
         }        
     }
 
+    virtual void VisitWhileStmt(WhileStmt * whstmt)
+    {
+        Expr *condExpr = whstmt->getCond();
+        Stmt *bodyStmt = whstmt->getBody();
+        if(condExpr == nullptr) return;
+
+        Visit(condExpr);
+        while(mEnv->cond(condExpr)) {
+            // bodyStmt 为空仍然是有效的 while 语句，故也不提前 return
+            if(bodyStmt)
+                Visit(bodyStmt);
+            Visit(condExpr);
+        }
+    }
+
+    virtual void VisitForStmt(ForStmt *forstmt)
+    {
+        Stmt *initStmt = forstmt->getInit();
+        Expr *condExpr = forstmt->getCond();
+        Expr *incExpr = forstmt->getInc();
+        Stmt *bodyStmt = forstmt->getBody();
+            
+        if(initStmt) Visit(initStmt);
+        
+        while(true) 
+        {
+            if(condExpr) {
+                Visit(condExpr);
+                // for(;;); -> condExpr is nullptr
+                if(!mEnv->cond(condExpr)) break;
+            }
+            Visit(bodyStmt); // unless NullStmt
+            if(incExpr) Visit(incExpr);
+        }
+
+    }
+
     virtual void VisitVarDecl(VarDecl *vardecl)
     {
         if(vardecl == nullptr) return;

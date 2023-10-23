@@ -352,7 +352,7 @@ void Environment::call(CallExpr *callexpr)
     FunctionDecl *callee = callexpr->getDirectCallee();
     if (callee == mInput)
     {
-        llvm::outs() << "Please Input an Integer Value : ";
+        llvm::errs() << "Please Input an Integer Value : "; // 在标准错误流中输出保证不影响重定向输出标准流时
         scanf("%d", &val);
 
         mStack.back().bindStmt(callexpr, val);

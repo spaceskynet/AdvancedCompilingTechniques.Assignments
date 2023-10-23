@@ -4,7 +4,7 @@
 int GET()
 {
     int x;
-    printf("Please Input an Integer Value : ");
+    fprintf(stderr, "Please Input an Integer Value : ");
     scanf("%d", &x);
     return x;
 }
