@@ -1,6 +1,6 @@
 #include "Environment.h"
 
-void StackFrame::bindDecl(Decl *decl, int val)
+void StackFrame::bindDecl(Decl *decl, int64_t val)
 {
     mVars[decl] = val;
 }
@@ -8,11 +8,11 @@ bool StackFrame::findDeclVal(Decl *decl)
 {
     return mVars.find(decl) != mVars.end();
 }
-int StackFrame::getDeclVal(Decl *decl) {
+int64_t StackFrame::getDeclVal(Decl *decl) {
   assert(this->findDeclVal(decl));
   return mVars.find(decl)->second;
 }
-void StackFrame::bindStmt(Stmt *stmt, int val)
+void StackFrame::bindStmt(Stmt *stmt, int64_t val)
 {
     mExprs[stmt] = val;
 }
@@ -20,11 +20,26 @@ bool StackFrame::findStmtVal(Stmt *stmt)
 {
     return mExprs.find(stmt) != mExprs.end();
 }
-int StackFrame::getStmtVal(Stmt *stmt)
+int64_t StackFrame::getStmtVal(Stmt *stmt)
 {
-    assert(this->findStmtVal(stmt)); // 保证 stmt 一定在栈帧中存在
+    assert(this->findStmtVal(stmt));
     return mExprs[stmt];
 }
+
+void StackFrame::bindPtr(Stmt *stmt, int64_t val)
+{
+    mPtrs[stmt] = val;
+}
+bool StackFrame::findPtrVal(Stmt *stmt)
+{
+    return mPtrs.find(stmt) != mPtrs.end();
+}
+int64_t StackFrame::getPtrVal(Stmt *stmt)
+{
+    assert(this->findStmtVal(stmt));
+    return mPtrs[stmt];
+}
+
 void StackFrame::setPC(Stmt *stmt)
 {
     mPC = stmt;
@@ -35,20 +50,20 @@ Stmt *StackFrame::getPC()
 }
 
 
-void GlobalValue::bindDecl(Decl *decl, int val)
+void GlobalValue::bindDecl(Decl *decl, int64_t val)
 {
     mVars[decl] = val;
 }
-int GlobalValue::getDeclVal(Decl *decl)
+int64_t GlobalValue::getDeclVal(Decl *decl)
 {
     assert(mVars.find(decl) != mVars.end());
     return mVars.find(decl)->second;
 }
-void GlobalValue::bindStmt(Stmt *stmt, int val)
+void GlobalValue::bindStmt(Stmt *stmt, int64_t val)
 {
     mExprs[stmt] = val;
 }
-int GlobalValue::getStmtVal(Stmt *stmt)
+int64_t GlobalValue::getStmtVal(Stmt *stmt)
 {
     assert(mExprs.find(stmt) != mExprs.end());
     return mExprs[stmt];
@@ -139,6 +154,25 @@ void Environment::paren(Expr *expr)
     );
 }
 
+void Environment::bindDecl(Expr *expr, int64_t val)
+{
+    if (DeclRefExpr *declexpr = dyn_cast<DeclRefExpr>(expr))
+    {
+        Decl *decl = declexpr->getFoundDecl();
+        mStack.back().bindDecl(decl, val);
+    }
+    else if (ArraySubscriptExpr *arraysub = dyn_cast<ArraySubscriptExpr>(expr))
+    {
+        int64_t addr = mStack.back().getPtrVal(arraysub);
+        QualType type = arraysub->getType();
+        if(type->isIntegerType()) {
+            *((int *)addr) = val;
+        } else if(type->isPointerType()) {
+            *((int64_t *)addr) = val;
+        }
+    }
+}
+
 /// !TODO Support comparison operation
 void Environment::binop(BinaryOperator *bop)
 {
@@ -146,6 +180,7 @@ void Environment::binop(BinaryOperator *bop)
     Expr *right = bop->getRHS();
 
     BinaryOperator::Opcode op = bop->getOpcode();
+    int64_t leftVal = getStmtVal(left);
     int64_t rightVal = getStmtVal(right);
     int64_t val = 0;
 
@@ -153,16 +188,40 @@ void Environment::binop(BinaryOperator *bop)
     // from clang/AST/OperationKinds.def
     if (bop->isAssignmentOp())
     {
-        mStack.back().bindStmt(left, rightVal);
-        if (DeclRefExpr *declexpr = dyn_cast<DeclRefExpr>(left))
+        switch (op) 
         {
-            Decl *decl = declexpr->getFoundDecl();
-            mStack.back().bindDecl(decl, rightVal);
+            case BO_Assign:
+                val = rightVal; break;
+            case BO_AddAssign:
+                val = leftVal + rightVal; break;
+            case BO_SubAssign:
+                val = leftVal - rightVal; break;
+            case BO_MulAssign:
+                val = leftVal * rightVal; break;
+            case BO_DivAssign:
+                assert(rightVal != 0);
+                val = leftVal / rightVal; break;
+            case BO_RemAssign:
+                assert(rightVal != 0);
+                val = leftVal % rightVal; break;
+            case BO_ShlAssign:
+                val = leftVal << rightVal; break;
+            case BO_ShrAssign:
+                val = leftVal >> rightVal; break;
+            case BO_AndAssign:
+                val = leftVal & rightVal; break;
+            case BO_XorAssign:
+                val = leftVal ^ rightVal; break;
+            case BO_OrAssign:
+                val = leftVal | rightVal; break;
+            default:
+                break;
         }
+        bindDecl(left, val);
+        // mStack.back().bindStmt(left, rightVal);
     }
     else
     {
-        int64_t leftVal = getStmtVal(left);
         switch (op)
         {
             case BO_Add:
@@ -204,11 +263,11 @@ void Environment::binop(BinaryOperator *bop)
             case BO_LOr:
                 val = leftVal || rightVal; break;
             default:
-                llvm::errs() << "[Error] Unsupport BinaryOperator.\n";
+                llvm::errs() << "[Error] Unsupported BinaryOperator.\n";
                 break;
         }
-        mStack.back().bindStmt(bop, val);
     }
+    mStack.back().bindStmt(bop, val);
 }
 
 void Environment::unaryop(UnaryOperator *uop)
@@ -238,11 +297,7 @@ void Environment::unaryop(UnaryOperator *uop)
             default:
                 break;
         }
-        if (DeclRefExpr *declexpr = dyn_cast<DeclRefExpr>(expr))
-        {
-            Decl *decl = declexpr->getFoundDecl();
-            mStack.back().bindDecl(decl, exprVal);
-        }
+        bindDecl(expr, exprVal);
     }
     else
     {
@@ -262,7 +317,7 @@ void Environment::unaryop(UnaryOperator *uop)
                 break;
 
             default:
-                llvm::errs() << "[Error] Unsupport UnaryOperator.\n";
+                llvm::errs() << "[Error] Unsupported UnaryOperator.\n";
                 break;
         }
     }
@@ -292,16 +347,35 @@ void Environment::decl(DeclStmt *declstmt)
 
 void Environment::vardecl(Decl *decl)
 {
-    int64_t val = 0;
     VarDecl *vardecl = dyn_cast<VarDecl>(decl);
     if(vardecl == nullptr) return;
-    if(vardecl->hasInit()) {
-        // 使用 isIntegerConstantExpr，会直接计算 a = 10 + 13 * 2 右侧这种常量表达式，跳过自定义的 binop 函数
-        // llvm::APSInt intResult;
-        // if(init->isIntegerConstantExpr(intResult, this->context)) val = intResult.getExtValue();
-        val = this->getStmtVal(vardecl->getInit());
+    QualType type = vardecl->getType();
+    if(type->isIntegerType())
+    {
+        int64_t val = 0;
+        if(vardecl->hasInit()) {
+            // 使用 isIntegerConstantExpr，会直接计算 a = 10 + 13 * 2 右侧这种常量表达式，跳过自定义的 binop 函数
+            // llvm::APSInt intResult;
+            // if(init->isIntegerConstantExpr(intResult, this->context)) val = intResult.getExtValue();
+            val = this->getStmtVal(vardecl->getInit());
+        }
+        mStack.back().bindDecl(vardecl, val);
     }
-    mStack.back().bindDecl(vardecl, val);
+    else if(type->isArrayType())
+    {
+        auto array = dyn_cast<ConstantArrayType>(type.getTypePtr());
+        int size = array->getSize().getSExtValue();
+        QualType elemType = array->getElementType();
+        void *addr = nullptr;
+        if(elemType->isIntegerType()) {
+            addr = malloc(size * sizeof(int));
+            for(int i = 0; i < size; ++i) *((int *)addr + i) = 0;
+        } else if(elemType->isPointerType()) {
+            addr = malloc(size * sizeof(void *));
+            for(int i = 0; i < size; ++i) *((int64_t *)addr + i) = 0;          
+        }
+        mStack.back().bindDecl(vardecl, (int64_t)addr);
+    }
 }
 
 void Environment::fdecl(Decl *decl)
@@ -324,24 +398,60 @@ void Environment::fdecl(Decl *decl)
 void Environment::declref(DeclRefExpr *declref)
 {
     mStack.back().setPC(declref);
-    if (declref->getType()->isIntegerType())
+    QualType type = declref->getType();
+
+    if (type->isIntegerType() || type->isArrayType() || type->isPointerType())
     {
         Decl *decl = declref->getFoundDecl();
 
         int val = this->getDeclVal(decl);
         mStack.back().bindStmt(declref, val);
     }
+    else if(!type->isFunctionType())
+    {
+        llvm::errs() << "[Error] Unsupported DeclRef\n";
+        declref->dump();
+    }
 }
 
 void Environment::cast(CastExpr *castexpr)
 {
     mStack.back().setPC(castexpr);
-    if (castexpr->getType()->isIntegerType())
+    QualType type = castexpr->getType();
+
+    // cast 时，不能包括 FunctionPointer，因为栈帧中可能并没有其信息，而是单独的几个extern函数
+    if (type->isIntegerType() || 
+        (type->isPointerType() && !type->isFunctionPointerType()))
     {
         Expr *expr = castexpr->getSubExpr();
-        int val = mStack.back().getStmtVal(expr);
+
+        int val = this->getStmtVal(expr);
         mStack.back().bindStmt(castexpr, val);
     }
+    else if(!type->isFunctionPointerType())
+    {
+        llvm::errs() << "[Error] Unsupported CastExpr\n";
+        castexpr->dump();
+    }
+}
+
+void Environment::arraysub(ArraySubscriptExpr *arraysub)
+{
+    Expr *base = arraysub->getBase();
+    Expr *index = arraysub->getIdx();
+
+    QualType type = arraysub->getType();
+
+    int64_t val = 0, addr = 0;
+    if(type->isIntegerType()) {
+        addr = getStmtVal(base) + getStmtVal(index) * sizeof(int);
+        val = *((int *)addr);
+    } else if(type->isPointerType()) {
+        addr = getStmtVal(base) + getStmtVal(index) * sizeof(int64_t);
+        val = *((int64_t *)addr);
+    }
+    mStack.back().bindStmt(arraysub, val);
+    mStack.back().bindPtr(arraysub, addr);
 }
 
 /// !TODO Support Function Call

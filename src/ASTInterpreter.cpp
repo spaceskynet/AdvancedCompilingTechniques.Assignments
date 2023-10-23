@@ -55,6 +55,13 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
         VisitStmt(call);
         mEnv->call(call);
     }
+
+    virtual void VisitArraySubscriptExpr(ArraySubscriptExpr *arraysub)
+    {
+        VisitStmt(arraysub);
+        mEnv->arraysub(arraysub);
+    }
+
     virtual void VisitDeclStmt(DeclStmt *declstmt)
     {
         for (auto *SubDecl : declstmt->decls())

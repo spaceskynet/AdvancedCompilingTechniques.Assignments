@@ -16,20 +16,24 @@ class StackFrame
   private:
     /// StackFrame maps Variable Declaration to Value
     /// Which are either integer or addresses (also represented using an Integer value)
-    std::map<Decl *, int> mVars;
-    std::map<Stmt *, int> mExprs;
+    std::map<Decl *, int64_t> mVars;
+    std::map<Stmt *, int64_t> mExprs;
+    std::map<Stmt *, int64_t> mPtrs;
     /// The current stmt
     Stmt *mPC;
 
   public:
-    StackFrame() : mVars(), mExprs(), mPC(){}
+    StackFrame() : mVars(), mExprs(), mPtrs(), mPC(){}
 
-    void bindDecl(Decl *, int);
+    void bindDecl(Decl *, int64_t);
     bool findDeclVal(Decl *);
-    int getDeclVal(Decl *);
-    void bindStmt(Stmt *, int);
+    int64_t getDeclVal(Decl *);
+    void bindStmt(Stmt *, int64_t);
     bool findStmtVal(Stmt *);
-    int getStmtVal(Stmt *);
+    int64_t getStmtVal(Stmt *);
+    void bindPtr(Stmt *, int64_t);
+    bool findPtrVal(Stmt *);
+    int64_t getPtrVal(Stmt *);
     void setPC(Stmt *);
     Stmt *getPC();
 };
@@ -37,15 +41,15 @@ class StackFrame
 class GlobalValue
 {
   private:
-    std::map<Decl *, int> mVars;
-    std::map<Stmt *, int> mExprs;
+    std::map<Decl *, int64_t> mVars;
+    std::map<Stmt *, int64_t> mExprs;
   public:
     GlobalValue() : mVars(), mExprs(){}
 
-    void bindDecl(Decl *, int);
-    int getDeclVal(Decl *);
-    void bindStmt(Stmt *, int);
-    int getStmtVal(Stmt *);
+    void bindDecl(Decl *, int64_t);
+    int64_t getDeclVal(Decl *);
+    void bindStmt(Stmt *, int64_t);
+    int64_t getStmtVal(Stmt *);
 };
 
 /// Heap maps address to a value
@@ -85,6 +89,7 @@ class Environment
     FunctionDecl *getEntry();
     int64_t getStmtVal(Expr *);
     int64_t getDeclVal(Decl *);
+    void bindDecl(Expr *, int64_t);
 
     int64_t cond(Expr *);
     void literal(Expr *);
@@ -98,6 +103,7 @@ class Environment
     void decl(DeclStmt *);
     void declref(DeclRefExpr *);
     void cast(CastExpr *);
+    void arraysub(ArraySubscriptExpr *);
 
     /// !TODO Support Function Call
     void call(CallExpr *);
