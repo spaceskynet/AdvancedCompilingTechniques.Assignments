@@ -62,6 +62,12 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
         mEnv->arraysub(arraysub);
     }
 
+    virtual void VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *ueott)
+    {
+        VisitStmt(ueott);
+        mEnv->ueott(ueott);
+    }
+
     virtual void VisitDeclStmt(DeclStmt *declstmt)
     {
         for (auto *SubDecl : declstmt->decls())
@@ -144,7 +150,6 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
             Visit(bodyStmt); // unless NullStmt
             if(incExpr) Visit(incExpr);
         }
-
     }
 
     virtual void VisitVarDecl(VarDecl *vardecl)
@@ -295,7 +300,7 @@ char* readFileContent(const char* filePath, int &fileSize)
     }
     else 
     {
-        llvm::errs() << "[Error] Could not open the file: " << filePath << "\n" ;
+        llvm::errs() << "[Error] Could not open the file: " << filePath << ".\n" ;
     }
     return nullptr;
 }

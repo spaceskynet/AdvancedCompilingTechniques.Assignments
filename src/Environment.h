@@ -1,6 +1,7 @@
 //==--- tools/clang-check/ClangInterpreter.cpp - Clang Interpreter tool --------------===//
 //===----------------------------------------------------------------------===//
-#include <stdio.h>
+#include <cstdio>
+#include <cstdlib>
 
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Decl.h"
@@ -57,8 +58,18 @@ class Heap {
   private:
     std::map<void *, int64_t> mSpace;
   public:
-   void *Malloc(int);
-   void Free(void *);
+    Heap() : mSpace(){}
+    ~Heap() {
+        if(mSpace.empty()) return;
+        for(auto& pair : mSpace) {
+            void *ptr = pair.first;
+            free(ptr);
+        }
+        mSpace.clear();
+    }
+
+    void *Malloc(int);
+    void Free(void *);
 };
 
 class Environment
@@ -78,8 +89,7 @@ class Environment
 
   public:
     /// Get the declarations to the built-in functions
-    Environment(const ASTContext &Context) : mStack(), mHeap(), mGlobal(), context(Context),mFree(nullptr), mMalloc(nullptr), mInput(nullptr), mOutput(nullptr), mEntry(nullptr)
-    {
+    Environment(const ASTContext &Context) : mStack(), mHeap(), mGlobal(), context(Context),mFree(nullptr), mMalloc(nullptr), mInput(nullptr), mOutput(nullptr), mEntry(nullptr) {
         mStack.push_back(StackFrame());
     }
 
@@ -98,9 +108,9 @@ class Environment
     void binop(BinaryOperator *);
     void unaryop(UnaryOperator *);
     void condop(ConditionalOperator *, Expr *);
+    void ueott(UnaryExprOrTypeTraitExpr *);
     void vardecl(Decl *);
     void fdecl(Decl *);
-    void decl(DeclStmt *);
     void declref(DeclRefExpr *);
     void cast(CastExpr *);
     void arraysub(ArraySubscriptExpr *);

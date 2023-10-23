@@ -71,12 +71,15 @@ int64_t GlobalValue::getStmtVal(Stmt *stmt)
 
 void *Heap::Malloc(int size)
 {
-    
-    return nullptr;
+    void *ptr = malloc(size);
+    mSpace[ptr] = size;
+    return ptr;
 }
-void Heap::Free(void *addr)
+void Heap::Free(void *ptr)
 {
-
+    assert(mSpace.find(ptr) != mSpace.end());
+    mSpace.erase(ptr);
+    free(ptr);
 }
 
 /// Initialize the Environment
@@ -166,7 +169,18 @@ void Environment::bindDecl(Expr *expr, int64_t val)
         int64_t addr = mStack.back().getPtrVal(arraysub);
         QualType type = arraysub->getType();
         if(type->isIntegerType()) {
-            *((int *)addr) = val;
+            *((int *)addr) = (int)val;
+        } else if(type->isPointerType()) {
+            *((int64_t *)addr) = val;
+        }
+    }
+    else if (UnaryOperator *uop = dyn_cast<UnaryOperator>(expr))
+    {
+        assert(uop->getOpcode() == UO_Deref);
+        int64_t addr = mStack.back().getPtrVal(uop);
+        QualType type = uop->getType();
+        if(type->isIntegerType()) {
+            *((int *)addr) = (int)val;
         } else if(type->isPointerType()) {
             *((int64_t *)addr) = val;
         }
@@ -184,10 +198,34 @@ void Environment::binop(BinaryOperator *bop)
     int64_t rightVal = getStmtVal(right);
     int64_t val = 0;
 
+    QualType leftType = left->getType();
+    QualType rightType = right->getType();
+
+    if(leftType->isPointerType() && rightType->isIntegerType())
+    {
+        QualType peType = leftType->getPointeeType();
+        if (peType->isIntegerType()) {
+            rightVal *= sizeof(int);
+        } else if (peType->isPointerType()) {
+            rightVal *= sizeof(void *);
+        }
+    }
+    else if (leftType->isIntegerType() && rightType->isPointerType())
+    {
+        QualType peType = rightType->getPointeeType();
+        if (peType->isIntegerType()) {
+            leftVal *= sizeof(int);
+        } else if (peType->isPointerType()) {
+            leftVal *= sizeof(void *);
+        }        
+    }
+
     // 赋值运算符 =, *=, /=, %=, +=, -=, <<=, >>=, &=, ^=, |=
     // from clang/AST/OperationKinds.def
     if (bop->isAssignmentOp())
     {
+        // 左值为整数，右值为指针非法
+        assert(!(leftType->isIntegerType() && rightType->isPointerType()));
         switch (op) 
         {
             case BO_Assign:
@@ -280,19 +318,34 @@ void Environment::unaryop(UnaryOperator *uop)
     
     if (uop->isIncrementDecrementOp())
     {
+        QualType type = expr->getType();
+        int unit = 1;
+        if (type->isPointerType()) {
+            QualType peType = type->getPointeeType();
+            if (peType->isIntegerType()) {
+                unit = sizeof(int);
+            } else if (peType->isPointerType()) {
+                unit = sizeof(void *);
+            }
+        }
+
         switch (op)
         {
             case UO_PreInc:
-                val = ++exprVal;
+                exprVal += unit;
+                val = exprVal;
                 break;
             case UO_PreDec:
-                val = --exprVal;
+                exprVal -= unit;
+                val = exprVal;
                 break;
             case UO_PostInc:
-                val = exprVal++;
+                val = exprVal;
+                exprVal += unit;
                 break;
             case UO_PostDec:
-                val = exprVal--;
+                val = exprVal;
+                exprVal -= unit;
                 break;
             default:
                 break;
@@ -316,6 +369,17 @@ void Environment::unaryop(UnaryOperator *uop)
                 val = !exprVal;
                 break;
 
+            case UO_Deref: {
+                QualType type = uop->getType();
+                if (type->isIntegerType()) {
+                    val = *((int *)exprVal);
+                } else if (type->isPointerType()) {
+                    val = *((int64_t *)exprVal);
+                }
+                mStack.back().bindPtr(uop, exprVal);
+                break;
+            }
+
             default:
                 llvm::errs() << "[Error] Unsupported UnaryOperator.\n";
                 break;
@@ -332,25 +396,30 @@ void Environment::condop(ConditionalOperator *condop, Expr *expr)
     );
 }
 
-void Environment::decl(DeclStmt *declstmt)
+void Environment::ueott(UnaryExprOrTypeTraitExpr *ueott)
 {
-    for (DeclStmt::decl_iterator it = declstmt->decl_begin(), ie = declstmt->decl_end();
-            it != ie; ++it)
+    UnaryExprOrTypeTrait uett = ueott->getKind();
+    int64_t size = 0;
+    if (uett == UETT_SizeOf)
     {
-        Decl *decl = *it;
-        if (VarDecl *vardecl = dyn_cast<VarDecl>(decl))
-        {
-            mStack.back().bindDecl(vardecl, 0);
-        }
+        QualType argType = ueott->getTypeOfArgument();
+        CharUnits sizeInChars = context.getTypeSizeInChars(argType);
+        size = sizeInChars.getQuantity();
     }
+    else
+    {
+        llvm::errs() << "[Error] Unsupported UnaryExprOrTypeTraitExpr.\n";
+    }
+    mStack.back().bindStmt(ueott, size);
 }
+
 
 void Environment::vardecl(Decl *decl)
 {
     VarDecl *vardecl = dyn_cast<VarDecl>(decl);
     if(vardecl == nullptr) return;
     QualType type = vardecl->getType();
-    if(type->isIntegerType())
+    if(type->isIntegerType() || type->isPointerType())
     {
         int64_t val = 0;
         if(vardecl->hasInit()) {
@@ -368,10 +437,10 @@ void Environment::vardecl(Decl *decl)
         QualType elemType = array->getElementType();
         void *addr = nullptr;
         if(elemType->isIntegerType()) {
-            addr = malloc(size * sizeof(int));
+            addr = mHeap.Malloc(size * sizeof(int));
             for(int i = 0; i < size; ++i) *((int *)addr + i) = 0;
         } else if(elemType->isPointerType()) {
-            addr = malloc(size * sizeof(void *));
+            addr =  mHeap.Malloc(size * sizeof(void *));
             for(int i = 0; i < size; ++i) *((int64_t *)addr + i) = 0;          
         }
         mStack.back().bindDecl(vardecl, (int64_t)addr);
@@ -409,7 +478,7 @@ void Environment::declref(DeclRefExpr *declref)
     }
     else if(!type->isFunctionType())
     {
-        llvm::errs() << "[Error] Unsupported DeclRef\n";
+        llvm::errs() << "[Error] Unsupported DeclRef.\n";
         declref->dump();
     }
 }
@@ -430,7 +499,7 @@ void Environment::cast(CastExpr *castexpr)
     }
     else if(!type->isFunctionPointerType())
     {
-        llvm::errs() << "[Error] Unsupported CastExpr\n";
+        llvm::errs() << "[Error] Unsupported CastExpr.\n";
         castexpr->dump();
     }
 }
@@ -458,12 +527,12 @@ void Environment::arraysub(ArraySubscriptExpr *arraysub)
 void Environment::call(CallExpr *callexpr)
 {
     mStack.back().setPC(callexpr);
-    int val = 0;
+    int64_t val = 0;
     FunctionDecl *callee = callexpr->getDirectCallee();
     if (callee == mInput)
     {
         llvm::errs() << "Please Input an Integer Value : "; // 在标准错误流中输出保证不影响重定向输出标准流时
-        scanf("%d", &val);
+        scanf("%ld", &val);
 
         mStack.back().bindStmt(callexpr, val);
     }
@@ -475,11 +544,16 @@ void Environment::call(CallExpr *callexpr)
     }
     else if (callee == mMalloc)
     {
-
+        Expr *decl = callexpr->getArg(0);
+        val = getStmtVal(decl);
+        void *ptr = mHeap.Malloc(val);
+        mStack.back().bindStmt(callexpr, (int64_t)ptr);
     }
     else if (callee == mFree)
     {
-        
+        Expr *decl = callexpr->getArg(0);
+        val = getStmtVal(decl);
+        mHeap.Free((void *)val);
     }
     else
     {

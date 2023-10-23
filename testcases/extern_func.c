@@ -1,11 +1,12 @@
+#include <bits/stdint-intn.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 int GET()
 {
-    int x;
+    int64_t x;
     fprintf(stderr, "Please Input an Integer Value : ");
-    scanf("%d", &x);
+    scanf("%ld", &x);
     return x;
 }
 
