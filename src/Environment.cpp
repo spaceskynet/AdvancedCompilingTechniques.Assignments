@@ -1,5 +1,12 @@
 #include "Environment.h"
 
+namespace self {
+    bool useErrs = true;
+    llvm::raw_ostream &errs() {
+        return useErrs ? llvm::errs() : llvm::nulls();
+    }
+}
+
 void StackFrame::bindDecl(Decl *decl, int64_t val)
 {
     mVars[decl] = val;
@@ -38,6 +45,15 @@ int64_t StackFrame::getPtrVal(Stmt *stmt)
 {
     assert(this->findStmtVal(stmt));
     return mPtrs[stmt];
+}
+
+void StackFrame::setReturnValue(int64_t val)
+{
+    returnValue = val;
+}
+int64_t StackFrame::getReturnValue()
+{
+    return returnValue;
 }
 
 void StackFrame::setPC(Stmt *stmt)
@@ -301,7 +317,8 @@ void Environment::binop(BinaryOperator *bop)
             case BO_LOr:
                 val = leftVal || rightVal; break;
             default:
-                llvm::errs() << "[Error] Unsupported BinaryOperator.\n";
+                self::errs() << "[Error] Unsupported BinaryOperator.\n";
+                bop->dump();
                 break;
         }
     }
@@ -381,7 +398,8 @@ void Environment::unaryop(UnaryOperator *uop)
             }
 
             default:
-                llvm::errs() << "[Error] Unsupported UnaryOperator.\n";
+                self::errs() << "[Error] Unsupported UnaryOperator.\n";
+                uop->dump();
                 break;
         }
     }
@@ -408,7 +426,8 @@ void Environment::ueott(UnaryExprOrTypeTraitExpr *ueott)
     }
     else
     {
-        llvm::errs() << "[Error] Unsupported UnaryExprOrTypeTraitExpr.\n";
+        self::errs() << "[Error] Unsupported UnaryExprOrTypeTraitExpr.\n";
+        ueott->dump();
     }
     mStack.back().bindStmt(ueott, size);
 }
@@ -468,7 +487,8 @@ void Environment::declref(DeclRefExpr *declref)
 {
     mStack.back().setPC(declref);
     QualType type = declref->getType();
-
+    
+    // declref 时，获取当前 Decl 的值绑定到当前 Stmt，但是不对函数进行处理（Call函数单独处理）
     if (type->isIntegerType() || type->isArrayType() || type->isPointerType())
     {
         Decl *decl = declref->getFoundDecl();
@@ -478,7 +498,7 @@ void Environment::declref(DeclRefExpr *declref)
     }
     else if(!type->isFunctionType())
     {
-        llvm::errs() << "[Error] Unsupported DeclRef.\n";
+        self::errs() << "[Error] Unsupported DeclRef.\n";
         declref->dump();
     }
 }
@@ -499,7 +519,7 @@ void Environment::cast(CastExpr *castexpr)
     }
     else if(!type->isFunctionPointerType())
     {
-        llvm::errs() << "[Error] Unsupported CastExpr.\n";
+        self::errs() << "[Error] Unsupported CastExpr.\n";
         castexpr->dump();
     }
 }
@@ -523,15 +543,24 @@ void Environment::arraysub(ArraySubscriptExpr *arraysub)
     mStack.back().bindPtr(arraysub, addr);
 }
 
+
+bool Environment::isBuildIn(CallExpr *callexpr)
+{
+    FunctionDecl *callee = callexpr->getDirectCallee();
+    if (callee == mInput || callee == mOutput ||
+        callee == mMalloc || callee == mFree ) return true;
+    else return false;
+}
+
 /// !TODO Support Function Call
-void Environment::call(CallExpr *callexpr)
+void Environment::callbuildin(CallExpr *callexpr)
 {
     mStack.back().setPC(callexpr);
     int64_t val = 0;
     FunctionDecl *callee = callexpr->getDirectCallee();
     if (callee == mInput)
     {
-        llvm::errs() << "Please Input an Integer Value : "; // 在标准错误流中输出保证不影响重定向输出标准流时
+        self::errs() << "Please Input an Integer Value : ";
         scanf("%ld", &val);
 
         mStack.back().bindStmt(callexpr, val);
@@ -557,6 +586,51 @@ void Environment::call(CallExpr *callexpr)
     }
     else
     {
-        
+        self::errs() << "[Error] Unsupported BuildIn.\n";
+        callexpr->dump();
     }
+}
+
+void Environment::call(CallExpr *callexpr)
+{
+    FunctionDecl *callee = callexpr->getDirectCallee();
+    if(callee->isDefined()) {
+        callee = callee->getDefinition();
+    }
+    int argsNum = callexpr->getNumArgs();
+    assert(argsNum == callee->getNumParams());
+    StackFrame calleeFrame = StackFrame();
+    for(int i = 0; i < argsNum; ++i)
+    {
+        calleeFrame.bindDecl(
+            callee->getParamDecl(i),
+            getStmtVal(callexpr->getArg(i))
+        );
+    }
+    mStack.push_back(calleeFrame);
+}
+
+void Environment::exit(CallExpr *callexpr)
+{
+    FunctionDecl *callee = callexpr->getDirectCallee();
+    QualType type = callee->getReturnType();
+    if (!type->isVoidType()) {
+        int64_t returnValue = mStack.back().getReturnValue();
+        mStack.pop_back();
+        mStack.back().bindStmt(callexpr, returnValue);
+    }
+    else {
+        mStack.pop_back();
+    }
+}
+
+void Environment::returnstmt(ReturnStmt *returnstmt)
+{
+    Expr *retVal = returnstmt->getRetValue();
+    QualType type = retVal->getType();
+    if (type->isVoidType()) return;
+
+    mStack.back().setReturnValue(
+        getStmtVal(retVal)
+    );
 }

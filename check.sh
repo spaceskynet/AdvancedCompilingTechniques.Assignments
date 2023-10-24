@@ -12,12 +12,12 @@ ast_interpreter=$WORK_DIR/build/ast-interpreter
 
 clang $WORK_DIR/testcases/extern_func.c $testcase_src -o $testcase_elf && chmod +x $testcase_elf
 
-$testcase_elf  >$TEMP_DIR/std.txt
-$ast_interpreter "`cat $testcase_src`" >$TEMP_DIR/self.txt
+$testcase_elf >$TEMP_DIR/std.txt 2> /dev/null
+$ast_interpreter "`cat $testcase_src`" >$TEMP_DIR/self.txt 2> /dev/null
 if diff $TEMP_DIR/std.txt $TEMP_DIR/self.txt; then
-    printf "AC\n"
+    echo -e "\e[34m$testcase_name\e[0m: \e[32mAC\e[0m"
     rm -rf $WORK_DIR/$TEMP_DIR
 else
-    printf "Wa\n"
+    echo -e "\e[34m$testcase_name\e[0m: \e[31mWa\e[0m"
     exit 0
 fi

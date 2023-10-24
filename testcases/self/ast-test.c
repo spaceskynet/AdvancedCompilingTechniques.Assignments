@@ -18,4 +18,8 @@ int main() {
    c = ++*n;
    n += 1;
    n = n - 1;
+   while(1) {
+      if(1) break;
+   }
+   while(0);
 }

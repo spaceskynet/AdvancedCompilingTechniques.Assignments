@@ -3,6 +3,7 @@
 build/
 *.ast
 testcases/*-ast/
+tmp/
 
 # Prerequisites
 *.d

@@ -6,6 +6,7 @@
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Tooling/Tooling.h"
+#include "llvm/Support/CommandLine.h"
 
 using namespace clang;
 
@@ -53,7 +54,31 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
     virtual void VisitCallExpr(CallExpr *call)
     {
         VisitStmt(call);
+        
+        if(mEnv->isBuildIn(call)) {
+            mEnv->callbuildin(call);
+            return;
+        }
+
         mEnv->call(call);
+        FunctionDecl *callee = call->getDirectCallee();
+        if(callee->isDefined()) {
+            callee = callee->getDefinition();
+        }
+        try {
+            VisitStmt(callee->getBody());
+        } catch (self::ReturnException &e) {
+            self::errs() << e.what() << "\n";
+        }
+        
+        mEnv->exit(call);
+    }
+
+    virtual void VisitReturnStmt(ReturnStmt *returnstmt)
+    {
+        VisitStmt(returnstmt);
+        mEnv->returnstmt(returnstmt);
+        throw self::ReturnException();
     }
 
     virtual void VisitArraySubscriptExpr(ArraySubscriptExpr *arraysub)
@@ -124,9 +149,14 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
 
         Visit(condExpr);
         while(mEnv->cond(condExpr)) {
-            // bodyStmt 为空仍然是有效的 while 语句，故也不提前 return
-            if(bodyStmt)
-                Visit(bodyStmt);
+            try {
+                Visit(bodyStmt); // At least: NullStmt
+            } catch (self::BreakException &e) {
+                self::errs() << e.what() << "\n";
+                break;
+            } catch (self::ContinueException &e) {
+                self::errs() << e.what() << "\n";
+            }
             Visit(condExpr);
         }
     }
@@ -147,10 +177,27 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
                 // for(;;); -> condExpr is nullptr
                 if(!mEnv->cond(condExpr)) break;
             }
-            Visit(bodyStmt); // unless NullStmt
+            try {
+                Visit(bodyStmt); // At least: NullStmt
+            } catch (self::BreakException &e) {
+                self::errs() << e.what() << "\n";
+                break;
+            } catch (self::ContinueException &e) {
+                self::errs() << e.what() << "\n";
+            }
             if(incExpr) Visit(incExpr);
         }
     }
+
+    virtual void VisitBreakStmt(BreakStmt *breakstmt)
+    {
+        throw self::BreakException();
+    }
+
+    virtual void VisitBreakStmt(ContinueStmt *constmt)
+    {
+        throw self::ContinueException();
+    }  
 
     virtual void VisitVarDecl(VarDecl *vardecl)
     {
@@ -181,7 +228,11 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
         }
         mEnv->init(unit);
         FunctionDecl *entry = mEnv->getEntry();
-        VisitStmt(entry->getBody());
+        try {
+            VisitStmt(entry->getBody());
+        } catch (self::ReturnException &e) {
+            self::errs() << e.what() << "\n";
+        }
     }
 
   private:
@@ -216,91 +267,59 @@ class InterpreterClassAction : public ASTFrontendAction
     }
 };
 
-char* readFileContent(const char *, int &);
+llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional, llvm::cl::desc("<C source file>"), llvm::cl::Required);
+llvm::cl::opt<bool> FileOption("file", llvm::cl::desc("Enable read from file"));
+llvm::cl::alias FileOptionShort("f", llvm::cl::aliasopt(FileOption));
+llvm::cl::opt<bool> DebugOption("debug", llvm::cl::desc("Enable debugging output"));
+llvm::cl::alias DebugOptionShort("d", llvm::cl::aliasopt(DebugOption));
+std::string readFileContent(std::string);
 
 int main(int argc, char *argv[])
 {
-    int option;
-    const char* requiredArg = nullptr;
-    bool useFile = false;
+    llvm::cl::ParseCommandLineOptions(argc, argv, "Clang AST Interpreter for tiny C.\n");
 
-    // 定义长选项结构体
-    const struct option longOptions[] = {
-        {"file", no_argument, nullptr, 'f'},
-        {nullptr, 0, nullptr, 0}
-    };
-
-    while ((option = getopt_long(argc, argv, "f", longOptions, nullptr)) != -1)
-    {
-        switch (option) {
-            case 'f':
-                useFile = true;
-                break;
-            case '?': // 处理未知选项或错误
-                break; 
-            default: // 处理其他选项
-                break;
-        }
-    }
-
-    // 检查是否存在必选参数
-    if (optind < argc)
-    {
-        requiredArg = argv[optind];
-    }
-    else
-    {
-        llvm::errs() << "[Error] Missing required argument.\n";
+    if (InputFilename.empty()) {
+        self::errs() << "[Error] Missing required C source file parameter.\n";
+        llvm::cl::PrintHelpMessage(false, true);
         return 1;
     }
 
-    // 判断直接传入参数字符数组还是从文件读取
-    if (!useFile)
-    {
-        clang::tooling::runToolOnCode(
-            std::unique_ptr<clang::FrontendAction>(new InterpreterClassAction), requiredArg);
+    // 获取必需参数的值
+    std::string inputFile = InputFilename;
+    // 获取可选参数的值
+    bool useFile = FileOption;
+    bool enableDebuggingOutput = DebugOption;
+
+    std::string sourceCode;
+    // 判断直接传入源代码字符串还是从源代码文件读取
+    if (!useFile) sourceCode = inputFile;
+    else {
+        sourceCode = readFileContent(inputFile);
+        if(sourceCode.empty()) return 1;
     }
-    else
-    {
-        int fileSize = 0;
-        char* fileData = readFileContent(requiredArg, fileSize);
-        if (fileData) {
-            clang::tooling::runToolOnCode(
-                std::unique_ptr<clang::FrontendAction>(new InterpreterClassAction), fileData);
-            delete[] fileData;
-        } else {
-            return 1;
-        }
-    }
+
+    self::useErrs = enableDebuggingOutput;
+
+    clang::tooling::runToolOnCode(
+        std::unique_ptr<clang::FrontendAction>(new InterpreterClassAction),
+        sourceCode
+    );
     return 0;
 }
 
-char* readFileContent(const char* filePath, int &fileSize) 
+std::string readFileContent(std::string filePath) 
 {
-    FILE* file = fopen(filePath, "rb");
-    if (file)
-    {
-        fseek(file, 0, SEEK_END);
-        fileSize = ftell(file);
-        fseek(file, 0, SEEK_SET);
-        char* fileData = new char[fileSize];
+    llvm::StringRef InputFilename(filePath);
+    std::string FileContent;
+    // 打开输入文件
+    auto FileOrErr = llvm::MemoryBuffer::getFile(InputFilename);
+    if (FileOrErr) {
+        auto File = std::move(FileOrErr.get());
 
-        if (fileData) {
-            size_t bytesRead = fread(fileData, 1, fileSize, file);
-            fclose(file);
-            if (bytesRead == fileSize) {
-                return fileData;
-            } else {
-                llvm::errs() << "[Error] Read error.\n";
-                delete[] fileData;
-            }
-        } else {
-            llvm::errs() << "[Error] Memory allocation failed.\n";
-        }
+        // 将文件内容保存到 std::string
+        FileContent = File->getBuffer().str();
+    } else {
+        self::errs() << "[Error] Fail to read file: " << InputFilename << ".\n";
     }
-    else 
-    {
-        llvm::errs() << "[Error] Could not open the file: " << filePath << ".\n" ;
-    }
-    return nullptr;
+    return FileContent;
 }
