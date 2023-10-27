@@ -11,7 +11,6 @@
 using namespace clang;
 
 #include "Environment.h"
-#include <getopt.h>
 
 class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
 {
@@ -22,7 +21,12 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
 
     virtual void VisitIntegerLiteral(IntegerLiteral *intl)
     {
-        mEnv->literal(intl);
+        mEnv->intliteral(intl);
+    }
+    
+    virtual void VisitCharacterLiteral(CharacterLiteral *charl)
+    {
+        mEnv->charliteral(charl);
     }
 
     virtual void VisitParenExpr(ParenExpr *paren)
@@ -146,7 +150,8 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
         if(condExpr == nullptr) return;
 
         Visit(condExpr);
-        while(mEnv->cond(condExpr)) {
+        while(mEnv->cond(condExpr))
+        {
             try {
                 Visit(bodyStmt); // At least: NullStmt
             } catch (self::BreakException &e) {
@@ -192,7 +197,7 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
         throw self::BreakException();
     }
 
-    virtual void VisitBreakStmt(ContinueStmt *constmt)
+    virtual void VisitContinueStmt(ContinueStmt *constmt)
     {
         throw self::ContinueException();
     }  

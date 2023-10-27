@@ -11,25 +11,25 @@ void StackFrame::bindDecl(Decl *decl, int64_t val)
 {
     mVars[decl] = val;
 }
-bool StackFrame::findDeclVal(Decl *decl)
+bool StackFrame::findDecl(Decl *decl)
 {
     return mVars.find(decl) != mVars.end();
 }
 int64_t StackFrame::getDeclVal(Decl *decl) {
-  assert(this->findDeclVal(decl));
+  assert(this->findDecl(decl));
   return mVars.find(decl)->second;
 }
 void StackFrame::bindStmt(Stmt *stmt, int64_t val)
 {
     mExprs[stmt] = val;
 }
-bool StackFrame::findStmtVal(Stmt *stmt)
+bool StackFrame::findStmt(Stmt *stmt)
 {
     return mExprs.find(stmt) != mExprs.end();
 }
 int64_t StackFrame::getStmtVal(Stmt *stmt)
 {
-    assert(this->findStmtVal(stmt));
+    assert(this->findStmt(stmt));
     return mExprs[stmt];
 }
 
@@ -37,13 +37,13 @@ void StackFrame::bindPtr(Stmt *stmt, int64_t val)
 {
     mPtrs[stmt] = val;
 }
-bool StackFrame::findPtrVal(Stmt *stmt)
+bool StackFrame::findPtr(Stmt *stmt)
 {
     return mPtrs.find(stmt) != mPtrs.end();
 }
 int64_t StackFrame::getPtrVal(Stmt *stmt)
 {
-    assert(this->findStmtVal(stmt));
+    assert(this->findStmt(stmt));
     return mPtrs[stmt];
 }
 
@@ -56,33 +56,14 @@ int64_t StackFrame::getReturnValue()
     return returnValue;
 }
 
-void StackFrame::setPC(Stmt *stmt)
-{
-    mPC = stmt;
-}
-Stmt *StackFrame::getPC()
-{
-    return mPC;
-}
-
-
-void GlobalValue::bindDecl(Decl *decl, int64_t val)
+void GlobalVars::bindDecl(Decl *decl, int64_t val)
 {
     mVars[decl] = val;
 }
-int64_t GlobalValue::getDeclVal(Decl *decl)
+int64_t GlobalVars::getDeclVal(Decl *decl)
 {
     assert(mVars.find(decl) != mVars.end());
     return mVars.find(decl)->second;
-}
-void GlobalValue::bindStmt(Stmt *stmt, int64_t val)
-{
-    mExprs[stmt] = val;
-}
-int64_t GlobalValue::getStmtVal(Stmt *stmt)
-{
-    assert(mExprs.find(stmt) != mExprs.end());
-    return mExprs[stmt];
 }
 
 
@@ -126,19 +107,16 @@ FunctionDecl *Environment::getEntry()
 int64_t Environment::getStmtVal(Expr *expr)
 {
     int64_t val;
-    // 如果当前栈帧中没有此（局部）变量，则在全局中
-    if(mStack.back().findStmtVal(expr)) 
-        val = mStack.back().getStmtVal(expr);
-    else
-        val = mGlobal.getStmtVal(expr);
+    // 全局里不应该存在 Stmt，指令都需要进函数
+    val = mStack.back().getStmtVal(expr);
     return val;
 }
 
 int64_t Environment::getDeclVal(Decl *decl)
 { 
     int64_t val;
-    // 如果当前栈帧中没有此（局部）变量，则在全局中
-    if(mStack.back().findDeclVal(decl)) 
+    // 如果当前栈帧中没有此变量，则应该在全局中
+    if(mStack.back().findDecl(decl)) 
         val = mStack.back().getDeclVal(decl);
     else
         val = mGlobal.getDeclVal(decl);
@@ -173,7 +151,7 @@ void Environment::bindDecl(Expr *expr, int64_t val)
     {
         int64_t addr = getPtrVal(arraysub);
         QualType type = arraysub->getType();
-        if(type->isIntegerType()) {
+        if(type->isIntegerType() || type->isCharType()) {
             *((int *)addr) = (int)val;
         } else if(type->isPointerType()) {
             *((int64_t *)addr) = val;
@@ -184,7 +162,7 @@ void Environment::bindDecl(Expr *expr, int64_t val)
         assert(uop->getOpcode() == UO_Deref);
         int64_t addr = getPtrVal(uop);
         QualType type = uop->getType();
-        if(type->isIntegerType()) {
+        if(type->isIntegerType() || type->isCharType()) {
             *((int *)addr) = (int)val;
         } else if(type->isPointerType()) {
             *((int64_t *)addr) = val;
@@ -198,16 +176,27 @@ int64_t Environment::cond(Expr *cond)
     return val;
 }
 
-void Environment::literal(Expr *intl) {
-  int64_t val;
-  llvm::APSInt intResult;
+void Environment::intliteral(Expr *intl) {
+    int64_t val;
+    llvm::APSInt intResult;
 
-  // 判断是否是 ASTContext 中合法的整数常量
-  if (intl->isIntegerConstantExpr(intResult, this->context)) {
-    val = intResult.getExtValue();
-    // 将（全局/局部）常量存入栈帧
-    bindStmt(intl, val);
-  }
+    // 判断是否是 ASTContext 中合法的整数常量
+    if (intl->isIntegerConstantExpr(intResult, this->context)) {
+        val = intResult.getExtValue();
+        // 将（全局/局部）常量存入栈帧
+        bindStmt(intl, val);
+    }
+}
+void Environment::charliteral(Expr *charl) {
+    int64_t val;
+    llvm::APSInt charResult;
+
+    // 判断是否是 ASTContext 中合法的整数常量（Clang AST中会将字符视作整数常量）
+    if (charl->isIntegerConstantExpr(charResult, this->context)) {
+        val = charResult.getExtValue();
+        // 将（全局/局部）常量存入栈帧
+        bindStmt(charl, val);
+    }
 }
 
 void Environment::paren(Expr *expr)
@@ -236,19 +225,19 @@ void Environment::binop(BinaryOperator *bop)
     QualType leftType = left->getType();
     QualType rightType = right->getType();
 
-    if(leftType->isPointerType() && rightType->isIntegerType())
+    if(leftType->isPointerType() && (rightType->isIntegerType() || rightType->isCharType()))
     {
         QualType peType = leftType->getPointeeType();
-        if (peType->isIntegerType()) {
+        if (peType->isIntegerType() || peType->isCharType()) {
             rightVal *= sizeof(int);
         } else if (peType->isPointerType()) {
             rightVal *= sizeof(void *);
         }
     }
-    else if (leftType->isIntegerType() && rightType->isPointerType())
+    else if ((leftType->isIntegerType() || leftType->isCharType()) && rightType->isPointerType())
     {
         QualType peType = rightType->getPointeeType();
-        if (peType->isIntegerType()) {
+        if (peType->isIntegerType() || peType->isCharType()) {
             leftVal *= sizeof(int);
         } else if (peType->isPointerType()) {
             leftVal *= sizeof(void *);
@@ -259,8 +248,8 @@ void Environment::binop(BinaryOperator *bop)
     // from clang/AST/OperationKinds.def
     if (bop->isAssignmentOp())
     {
-        // 左值为整数，右值为指针非法
-        assert(!(leftType->isIntegerType() && rightType->isPointerType()));
+        // 左值为整数/字符，右值为指针非法
+        assert(!((leftType->isIntegerType() || leftType->isCharType()) && rightType->isPointerType()));
         switch (op) 
         {
             case BO_Assign:
@@ -336,7 +325,7 @@ void Environment::binop(BinaryOperator *bop)
                 val = leftVal || rightVal; break;
             default:
                 self::errs() << "[Error] Unsupported BinaryOperator.\n";
-                bop->dump();
+                bop->dump(self::errs());
                 break;
         }
     }
@@ -357,7 +346,7 @@ void Environment::unaryop(UnaryOperator *uop)
         int unit = 1;
         if (type->isPointerType()) {
             QualType peType = type->getPointeeType();
-            if (peType->isIntegerType()) {
+            if (peType->isIntegerType() || peType->isCharType()) {
                 unit = sizeof(int);
             } else if (peType->isPointerType()) {
                 unit = sizeof(void *);
@@ -406,7 +395,7 @@ void Environment::unaryop(UnaryOperator *uop)
 
             case UO_Deref: {
                 QualType type = uop->getType();
-                if (type->isIntegerType()) {
+                if (type->isIntegerType() || type->isCharType()) {
                     val = *((int *)exprVal);
                 } else if (type->isPointerType()) {
                     val = *((int64_t *)exprVal);
@@ -415,12 +404,13 @@ void Environment::unaryop(UnaryOperator *uop)
                 break;
             }
             case UO_AddrOf: {
+                // Extra TODO: Support UO_AddrOf like `int *p = &a;`
                 break;
             }
 
             default:
                 self::errs() << "[Error] Unsupported UnaryOperator.\n";
-                uop->dump();
+                uop->dump(self::errs());
                 break;
         }
     }
@@ -444,11 +434,14 @@ void Environment::ueott(UnaryExprOrTypeTraitExpr *ueott)
         QualType argType = ueott->getTypeOfArgument();
         CharUnits sizeInChars = context.getTypeSizeInChars(argType);
         size = sizeInChars.getQuantity();
+
+        // 本解释器中将 Char 视作 int 存储，故需要在此打个 patch
+        if(argType->isCharType()) size = sizeof(int);
     }
     else
     {
         self::errs() << "[Error] Unsupported UnaryExprOrTypeTraitExpr.\n";
-        ueott->dump();
+        ueott->dump(self::errs());
     }
     bindStmt(ueott, size);
 }
@@ -476,7 +469,7 @@ void Environment::vardecl(Decl *decl)
         int size = array->getSize().getSExtValue();
         QualType elemType = array->getElementType();
         void *addr = nullptr;
-        if(elemType->isIntegerType()) {
+        if(elemType->isIntegerType() || elemType->isCharType()) {
             addr = mHeap.Malloc(size * sizeof(int));
             for(int i = 0; i < size; ++i) *((int *)addr + i) = 0;
         } else if(elemType->isPointerType()) {
@@ -506,7 +499,6 @@ void Environment::fdecl(Decl *decl)
 
 void Environment::declref(DeclRefExpr *declref)
 {
-    mStack.back().setPC(declref);
     QualType type = declref->getType();
     
     // declref 时，获取当前 Decl 的值绑定到当前 Stmt，但是不对函数进行处理（Call函数单独处理）
@@ -520,17 +512,16 @@ void Environment::declref(DeclRefExpr *declref)
     else if(!type->isFunctionType())
     {
         self::errs() << "[Error] Unsupported DeclRef.\n";
-        declref->dump();
+        declref->dump(self::errs());
     }
 }
 
 void Environment::cast(CastExpr *castexpr)
 {
-    mStack.back().setPC(castexpr);
     QualType type = castexpr->getType();
 
-    // cast 时，不能包括 FunctionPointer，因为栈帧中可能并没有其信息，而是单独的几个extern函数
-    if (type->isIntegerType() || 
+    // cast 时，不能包括 FunctionPointer，因为栈帧中可能并没有其信息，如果是指定的那几个extern函数
+    if (type->isIntegerType() || type->isCharType() ||
         (type->isPointerType() && !type->isFunctionPointerType()))
     {
         Expr *expr = castexpr->getSubExpr();
@@ -541,7 +532,7 @@ void Environment::cast(CastExpr *castexpr)
     else if(!type->isFunctionPointerType())
     {
         self::errs() << "[Error] Unsupported CastExpr.\n";
-        castexpr->dump();
+        castexpr->dump(self::errs());
     }
 }
 
@@ -553,7 +544,7 @@ void Environment::arraysub(ArraySubscriptExpr *arraysub)
     QualType type = arraysub->getType();
 
     int64_t val = 0, addr = 0;
-    if(type->isIntegerType()) {
+    if(type->isIntegerType() || type->isCharType()) {
         addr = getStmtVal(base) + getStmtVal(index) * sizeof(int);
         val = *((int *)addr);
     } else if(type->isPointerType()) {
@@ -568,15 +559,15 @@ void Environment::arraysub(ArraySubscriptExpr *arraysub)
 bool Environment::isBuildIn(CallExpr *callexpr)
 {
     FunctionDecl *callee = callexpr->getDirectCallee();
-    if (callee == mInput || callee == mOutput ||
-        callee == mMalloc || callee == mFree ) return true;
-    else return false;
+    if (callee == mInput  || callee == mOutput ||
+        callee == mMalloc || callee == mFree ) 
+        return true;
+    else
+        return false;
 }
 
-/// !TODO Support Function Call
 void Environment::callbuildin(CallExpr *callexpr)
 {
-    mStack.back().setPC(callexpr);
     int64_t val = 0;
     FunctionDecl *callee = callexpr->getDirectCallee();
     if (callee == mInput)
@@ -607,8 +598,8 @@ void Environment::callbuildin(CallExpr *callexpr)
     }
     else
     {
-        self::errs() << "[Error] Unsupported BuildIn.\n";
-        callexpr->dump();
+        self::errs() << "[Error] Unsupported BuildIn Function.\n";
+        callexpr->dump(self::errs());
     }
 }
 

@@ -22,50 +22,45 @@ class StackFrame
     std::map<Decl *, int64_t> mVars;
     std::map<Stmt *, int64_t> mExprs;
     std::map<Stmt *, int64_t> mPtrs;
-    /// The current stmt
-    Stmt *mPC;
+    /// The return value
     int64_t returnValue;
 
   public:
-    StackFrame() : mVars(), mExprs(), mPtrs(), mPC(), returnValue(0){}
+    StackFrame() : mVars(), mExprs(), mPtrs(), returnValue(0){}
 
     void bindDecl(Decl *, int64_t);
-    bool findDeclVal(Decl *);
+    bool findDecl(Decl *);
     int64_t getDeclVal(Decl *);
     void bindStmt(Stmt *, int64_t);
-    bool findStmtVal(Stmt *);
+    bool findStmt(Stmt *);
     int64_t getStmtVal(Stmt *);
     void bindPtr(Stmt *, int64_t);
-    bool findPtrVal(Stmt *);
+    bool findPtr(Stmt *);
     int64_t getPtrVal(Stmt *);
     void setReturnValue(int64_t);
     int64_t getReturnValue();
-    void setPC(Stmt *);
-    Stmt *getPC();
 };
 
-class GlobalValue
+class GlobalVars
 {
   private:
     std::map<Decl *, int64_t> mVars;
-    std::map<Stmt *, int64_t> mExprs;
   public:
-    GlobalValue() : mVars(), mExprs(){}
+    GlobalVars() : mVars(){}
 
     void bindDecl(Decl *, int64_t);
     int64_t getDeclVal(Decl *);
-    void bindStmt(Stmt *, int64_t);
-    int64_t getStmtVal(Stmt *);
 };
 
 /// Heap maps address to a value
-class Heap {
+class Heap
+{
   private:
     std::map<void *, int64_t> mSpace;
   public:
     Heap() : mSpace(){}
     ~Heap() {
-        // 析构 Heap 时 Free 掉局部变量中数组申请的空间（当然也有忘 Free 的情况）
+        // 析构 Heap 时 Free 掉局部变量中申请的空间（当然也有testcase源码中忘 Free 的情况）
         if(mSpace.empty()) return;
         for(auto& pair : mSpace) {
             void *ptr = pair.first;
@@ -81,12 +76,13 @@ class Heap {
 class Environment
 {
     std::vector<StackFrame> mStack;
-    Heap mHeap;
-    GlobalValue mGlobal; // 存储全局变量/常量
+    Heap mHeap; // 用于 Malloc / Free，管理堆上空间
+    GlobalVars mGlobal; // 存储全局变量/常量
 
     const ASTContext &context;
 
-    FunctionDecl *mFree; /// Declarations to the built-in functions
+    /// Declarations to the built-in functions
+    FunctionDecl *mFree; 
     FunctionDecl *mMalloc;
     FunctionDecl *mInput;
     FunctionDecl *mOutput;
@@ -112,9 +108,10 @@ class Environment
     bool isBuildIn(CallExpr *);
 
     int64_t cond(Expr *);
-    void literal(Expr *);
+    void intliteral(Expr *);
+    void charliteral(Expr *);
     void paren(Expr *);
-    /// !TODO Support comparison operation
+
     void binop(BinaryOperator *);
     void unaryop(UnaryOperator *);
     void condop(ConditionalOperator *, Expr *);
@@ -125,7 +122,6 @@ class Environment
     void cast(CastExpr *);
     void arraysub(ArraySubscriptExpr *);
 
-    /// !TODO Support Function Call
     void callbuildin(CallExpr *);
     void call(CallExpr *);
     void exit(CallExpr *);

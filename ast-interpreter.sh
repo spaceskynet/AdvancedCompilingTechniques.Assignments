@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-if [ $# -lt 1 ]; then
-    echo -e "\e[31m[Error]\e[0m At least one argument is required."
+if ! [ $# -eq 1 ]; then
+    echo -e "\e[31m[Error]\e[0m Only accept one required argument: ./ast-interpreter.sh <source>.c`."
     exit 1
 fi
 
-./build/ast-interpreter "`cat $1`" $2 $3
+./build/ast-interpreter "`cat $1`" -d

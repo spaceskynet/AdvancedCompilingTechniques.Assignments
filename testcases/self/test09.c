@@ -11,9 +11,10 @@ int main() {
       if (a >= 100) break;
       a += i;
       if (i % 3) {
-         PRINT(a);
+         PRINT(i ^ a);
       }
       else continue;
+      PRINT(a);
    }
    PRINT(a);
    return 0;
