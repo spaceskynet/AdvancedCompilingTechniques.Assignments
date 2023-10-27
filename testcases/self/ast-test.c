@@ -3,6 +3,8 @@ extern void * MALLOC(int);
 extern void FREE(void *);
 extern void PRINT(int);
 
+int cnt[100] = {0};
+
 int main() {
    for (;;);
    int c = GET();
@@ -18,8 +20,11 @@ int main() {
    c = ++*n;
    n += 1;
    n = n - 1;
+   cnt[0] = *n;
    while(1) {
       if(1) break;
    }
    while(0);
+   if (1) {}
+   int **x = &n;
 }

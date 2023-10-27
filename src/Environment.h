@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
-#include <iostream>
 
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Decl.h"
@@ -106,7 +105,10 @@ class Environment
     FunctionDecl *getEntry();
     int64_t getStmtVal(Expr *);
     int64_t getDeclVal(Decl *);
+    int64_t getPtrVal(Expr *);
     void bindDecl(Expr *, int64_t);
+    void bindStmt(Expr *, int64_t);
+    void bindPtr(Expr *, int64_t);
     bool isBuildIn(CallExpr *);
 
     int64_t cond(Expr *);

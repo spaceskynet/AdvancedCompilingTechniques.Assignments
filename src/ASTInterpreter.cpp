@@ -114,9 +114,7 @@ class InterpreterVisitor : public EvaluatedExprVisitor<InterpreterVisitor>
         if(condExpr == nullptr) return;
         Visit(condExpr);
         if(mEnv->cond(condExpr)) {
-            // thenStmt 为空仍然是有效的 If 语句，故不提前 return
-            if(thenStmt)
-                Visit(thenStmt);
+            Visit(thenStmt);
         } else if (elseStmt) {
             Visit(elseStmt);
         }
@@ -267,7 +265,7 @@ class InterpreterClassAction : public ASTFrontendAction
     }
 };
 
-llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional, llvm::cl::desc("<C source file>"), llvm::cl::Required);
+llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional, llvm::cl::desc("<source>.c"), llvm::cl::Required);
 llvm::cl::opt<bool> FileOption("file", llvm::cl::desc("Enable read from file"));
 llvm::cl::alias FileOptionShort("f", llvm::cl::aliasopt(FileOption));
 llvm::cl::opt<bool> DebugOption("debug", llvm::cl::desc("Enable debugging output"));

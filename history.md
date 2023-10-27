@@ -35,4 +35,4 @@
 
 ## 2023.10.24
 
-完成自定义函数的Call与Return，利用try/catch异常处理实现Return，添加自动测试shell脚本，通过所有测试用例；顺便利用try/catch异常处理实现了循环体内的break和continue，修改命令行参数处理，可以通过-d/--debug开启标准错误流输出，通过-f/--file实现从文件中读取源码。
+完成自定义函数的Call与Return，利用try/catch异常处理实现Return（别忘了给main函数也加上），添加自动测试shell脚本，通过所有测试用例；顺便利用try/catch异常处理实现了循环体内的break和continue，修改命令行参数处理，可以通过-d/--debug开启标准错误流输出，通过-f/--file实现从文件中读取源码（方便通过`lldb`debug）。

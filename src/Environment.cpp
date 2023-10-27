@@ -85,6 +85,7 @@ int64_t GlobalValue::getStmtVal(Stmt *stmt)
     return mExprs[stmt];
 }
 
+
 void *Heap::Malloc(int size)
 {
     void *ptr = malloc(size);
@@ -97,6 +98,7 @@ void Heap::Free(void *ptr)
     mSpace.erase(ptr);
     free(ptr);
 }
+
 
 /// Initialize the Environment
 void Environment::init(TranslationUnitDecl *unit)
@@ -143,6 +145,53 @@ int64_t Environment::getDeclVal(Decl *decl)
     return val;
 }
 
+int64_t Environment::getPtrVal(Expr *expr)
+{
+    int64_t val;
+    val = mStack.back().getPtrVal(expr);
+    return val;
+}
+
+void Environment::bindStmt(Expr *expr, int64_t val)
+{
+    mStack.back().bindStmt(expr, val);
+}
+
+void Environment::bindPtr(Expr *expr, int64_t val)
+{
+    mStack.back().bindPtr(expr, val);
+}
+
+void Environment::bindDecl(Expr *expr, int64_t val)
+{
+    if (DeclRefExpr *declexpr = dyn_cast<DeclRefExpr>(expr))
+    {
+        Decl *decl = declexpr->getFoundDecl();
+        mStack.back().bindDecl(decl, val);
+    }
+    else if (ArraySubscriptExpr *arraysub = dyn_cast<ArraySubscriptExpr>(expr))
+    {
+        int64_t addr = getPtrVal(arraysub);
+        QualType type = arraysub->getType();
+        if(type->isIntegerType()) {
+            *((int *)addr) = (int)val;
+        } else if(type->isPointerType()) {
+            *((int64_t *)addr) = val;
+        }
+    }
+    else if (UnaryOperator *uop = dyn_cast<UnaryOperator>(expr))
+    {
+        assert(uop->getOpcode() == UO_Deref);
+        int64_t addr = getPtrVal(uop);
+        QualType type = uop->getType();
+        if(type->isIntegerType()) {
+            *((int *)addr) = (int)val;
+        } else if(type->isPointerType()) {
+            *((int64_t *)addr) = val;
+        }
+    }
+}
+
 int64_t Environment::cond(Expr *cond)
 {
     int64_t val = getStmtVal(cond);
@@ -157,7 +206,7 @@ void Environment::literal(Expr *intl) {
   if (intl->isIntegerConstantExpr(intResult, this->context)) {
     val = intResult.getExtValue();
     // 将（全局/局部）常量存入栈帧
-    mStack.back().bindStmt(intl, val);
+    bindStmt(intl, val);
   }
 }
 
@@ -167,40 +216,10 @@ void Environment::paren(Expr *expr)
     if(paren == nullptr) return;
 
     // 将子节点的val绑定到paren
-    mStack.back().bindStmt(
+    bindStmt(
         paren,
         getStmtVal(paren->getSubExpr())
     );
-}
-
-void Environment::bindDecl(Expr *expr, int64_t val)
-{
-    if (DeclRefExpr *declexpr = dyn_cast<DeclRefExpr>(expr))
-    {
-        Decl *decl = declexpr->getFoundDecl();
-        mStack.back().bindDecl(decl, val);
-    }
-    else if (ArraySubscriptExpr *arraysub = dyn_cast<ArraySubscriptExpr>(expr))
-    {
-        int64_t addr = mStack.back().getPtrVal(arraysub);
-        QualType type = arraysub->getType();
-        if(type->isIntegerType()) {
-            *((int *)addr) = (int)val;
-        } else if(type->isPointerType()) {
-            *((int64_t *)addr) = val;
-        }
-    }
-    else if (UnaryOperator *uop = dyn_cast<UnaryOperator>(expr))
-    {
-        assert(uop->getOpcode() == UO_Deref);
-        int64_t addr = mStack.back().getPtrVal(uop);
-        QualType type = uop->getType();
-        if(type->isIntegerType()) {
-            *((int *)addr) = (int)val;
-        } else if(type->isPointerType()) {
-            *((int64_t *)addr) = val;
-        }
-    }
 }
 
 /// !TODO Support comparison operation
@@ -272,7 +291,6 @@ void Environment::binop(BinaryOperator *bop)
                 break;
         }
         bindDecl(left, val);
-        // mStack.back().bindStmt(left, rightVal);
     }
     else
     {
@@ -322,7 +340,7 @@ void Environment::binop(BinaryOperator *bop)
                 break;
         }
     }
-    mStack.back().bindStmt(bop, val);
+    bindStmt(bop, val);
 }
 
 void Environment::unaryop(UnaryOperator *uop)
@@ -393,7 +411,10 @@ void Environment::unaryop(UnaryOperator *uop)
                 } else if (type->isPointerType()) {
                     val = *((int64_t *)exprVal);
                 }
-                mStack.back().bindPtr(uop, exprVal);
+                bindPtr(uop, exprVal);
+                break;
+            }
+            case UO_AddrOf: {
                 break;
             }
 
@@ -403,12 +424,12 @@ void Environment::unaryop(UnaryOperator *uop)
                 break;
         }
     }
-    mStack.back().bindStmt(uop, val);
+    bindStmt(uop, val);
 }
 
 void Environment::condop(ConditionalOperator *condop, Expr *expr)
 {
-    mStack.back().bindStmt(
+    bindStmt(
         condop,
         getStmtVal(expr)
     );
@@ -429,7 +450,7 @@ void Environment::ueott(UnaryExprOrTypeTraitExpr *ueott)
         self::errs() << "[Error] Unsupported UnaryExprOrTypeTraitExpr.\n";
         ueott->dump();
     }
-    mStack.back().bindStmt(ueott, size);
+    bindStmt(ueott, size);
 }
 
 
@@ -445,7 +466,7 @@ void Environment::vardecl(Decl *decl)
             // 使用 isIntegerConstantExpr，会直接计算 a = 10 + 13 * 2 右侧这种常量表达式，跳过自定义的 binop 函数
             // llvm::APSInt intResult;
             // if(init->isIntegerConstantExpr(intResult, this->context)) val = intResult.getExtValue();
-            val = this->getStmtVal(vardecl->getInit());
+            val = getStmtVal(vardecl->getInit());
         }
         mStack.back().bindDecl(vardecl, val);
     }
@@ -493,8 +514,8 @@ void Environment::declref(DeclRefExpr *declref)
     {
         Decl *decl = declref->getFoundDecl();
 
-        int val = this->getDeclVal(decl);
-        mStack.back().bindStmt(declref, val);
+        int val = getDeclVal(decl);
+        bindStmt(declref, val);
     }
     else if(!type->isFunctionType())
     {
@@ -514,8 +535,8 @@ void Environment::cast(CastExpr *castexpr)
     {
         Expr *expr = castexpr->getSubExpr();
 
-        int val = this->getStmtVal(expr);
-        mStack.back().bindStmt(castexpr, val);
+        int val = getStmtVal(expr);
+        bindStmt(castexpr, val);
     }
     else if(!type->isFunctionPointerType())
     {
@@ -539,8 +560,8 @@ void Environment::arraysub(ArraySubscriptExpr *arraysub)
         addr = getStmtVal(base) + getStmtVal(index) * sizeof(int64_t);
         val = *((int64_t *)addr);
     }
-    mStack.back().bindStmt(arraysub, val);
-    mStack.back().bindPtr(arraysub, addr);
+    bindStmt(arraysub, val);
+    bindPtr(arraysub, addr);
 }
 
 
@@ -563,7 +584,7 @@ void Environment::callbuildin(CallExpr *callexpr)
         self::errs() << "Please Input an Integer Value : ";
         scanf("%ld", &val);
 
-        mStack.back().bindStmt(callexpr, val);
+        bindStmt(callexpr, val);
     }
     else if (callee == mOutput)
     {
@@ -576,7 +597,7 @@ void Environment::callbuildin(CallExpr *callexpr)
         Expr *decl = callexpr->getArg(0);
         val = getStmtVal(decl);
         void *ptr = mHeap.Malloc(val);
-        mStack.back().bindStmt(callexpr, (int64_t)ptr);
+        bindStmt(callexpr, (int64_t)ptr);
     }
     else if (callee == mFree)
     {
@@ -617,7 +638,7 @@ void Environment::exit(CallExpr *callexpr)
     if (!type->isVoidType()) {
         int64_t returnValue = mStack.back().getReturnValue();
         mStack.pop_back();
-        mStack.back().bindStmt(callexpr, returnValue);
+        bindStmt(callexpr, returnValue);
     }
     else {
         mStack.pop_back();

@@ -1,4 +1,3 @@
-#include <bits/stdint-intn.h>
 #include <stdio.h>
 #include <stdlib.h>
 
