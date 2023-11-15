@@ -4,6 +4,7 @@ build/
 *.ast
 testcases/*-ast/
 tmp/
+*.tar.gz
 
 # Prerequisites
 *.d

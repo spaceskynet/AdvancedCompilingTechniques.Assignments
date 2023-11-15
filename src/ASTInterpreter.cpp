@@ -273,8 +273,8 @@ class InterpreterClassAction : public ASTFrontendAction
 llvm::cl::opt<std::string> InputFilename(llvm::cl::Positional, llvm::cl::desc("<source>.c"), llvm::cl::Required);
 llvm::cl::opt<bool> FileOption("file", llvm::cl::desc("Enable read from file"));
 llvm::cl::alias FileOptionShort("f", llvm::cl::aliasopt(FileOption));
-llvm::cl::opt<bool> DebugOption("debug", llvm::cl::desc("Enable debugging output"));
-llvm::cl::alias DebugOptionShort("d", llvm::cl::aliasopt(DebugOption));
+llvm::cl::opt<bool> StdErrOption("stderr", llvm::cl::desc("Enable stderr output"));
+llvm::cl::alias StdErrOptionShort("e", llvm::cl::aliasopt(StdErrOption));
 std::string readFileContent(std::string);
 
 int main(int argc, char *argv[])
@@ -291,7 +291,7 @@ int main(int argc, char *argv[])
     std::string inputFile = InputFilename;
     // 获取可选参数的值
     bool useFile = FileOption;
-    bool enableDebuggingOutput = DebugOption;
+    bool enableStdErrOutput = StdErrOption;
 
     std::string sourceCode;
     // 判断直接传入源代码字符串还是从源代码文件读取
@@ -301,7 +301,7 @@ int main(int argc, char *argv[])
         if(sourceCode.empty()) return 1;
     }
 
-    self::useErrs = enableDebuggingOutput;
+    self::useErrs = enableStdErrOutput;
 
     clang::tooling::runToolOnCode(
         std::unique_ptr<clang::FrontendAction>(new InterpreterClassAction),

@@ -160,7 +160,7 @@ namespace self {
             std::string errorMessage;
     };
 
-    // 根据命令行参数 --debug 判断是否开启标准错误流
+    // 根据命令行参数 --stderr 判断是否开启标准错误流
     extern bool useErrs;
     llvm::raw_ostream &errs();
 }

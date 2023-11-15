@@ -4,29 +4,40 @@ extern void FREE(void *);
 extern void PRINT(int);
 
 
-void swap(int *a, int *b) {
-   int temp;
+void swap(char *a, char *b) {
+   char temp;
    temp = *a;
    *a = *b;
    *b = temp;
 }
 
+void dswap(char **a, char **b)
+{
+   swap(*a, *b);
+}
+
 int main() {
-   int* a; 
-   int* b;
-   a = (int *)MALLOC(sizeof(int)); // int[4]
-   b = (int *)MALLOC(sizeof(int *)); // int[8][]
+   char* a; 
+   char **pa;
+   char* b;
+   char **pb;
+   a = (char *)MALLOC(1);
+   b = (char *)MALLOC(1);
+   pa = (char **)MALLOC(8);
+   pb = (char **)MALLOC(8);
    
-   *b = 24; // b[0] = 24
-   *a = 42; // a[0] = 42
+   *b = 24;
+   *a = 42;
 
-   swap(a, b);
+   *pa = a;
+   *pb = b;
 
-   PRINT(*a); // 24
-   PRINT(*b); // 42
+   dswap(pa, pb);
+
+   PRINT((int)*a);
+   PRINT((int)*b);
    FREE(a);
    FREE(b);
    return 0;
 }
-
 

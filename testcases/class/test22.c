@@ -3,18 +3,29 @@ extern void * MALLOC(int);
 extern void FREE(void *);
 extern void PRINT(int);
 
-int get(int *a) {
-   return *a;
+
+void swap(char *a, char *b) {
+   char temp;
+   temp = *a;
+   *a = *b;
+   *b = temp;
 }
 
 int main() {
-   int* a; 
-   int b;
-   a = (int *) MALLOC(sizeof(int));
-   *a = 42;   
+   char* a; 
+   char* b;
+   a = (char *)MALLOC(1);
+   b = (char *)MALLOC(1);
+   
+   *b = 24;
+   *a = 42;
 
-   b = get(a);
-   PRINT(b);
+   swap(a, b);
+
+   PRINT((int)*a);
+   PRINT((int)*b);
+   FREE(a);
+   FREE(b);
    return 0;
 }
 

@@ -40,3 +40,7 @@
 ## 2023.10.27
 
 删除了不需要的函数，添加了对char变量的支持（将char视作int处理），改正一些错误。
+
+## 2023.11.16
+
+测试时因为助教是使用`docker exec`在容器外进行make，没有进入docker容器内部导致没有加载`.bashrc`，PATH中找不到`clang`和`clang++`，所以修改了`CMakeLists.txt`把`clang`和`clang++`的路径换成了绝对路径，这下才成功通过测试。

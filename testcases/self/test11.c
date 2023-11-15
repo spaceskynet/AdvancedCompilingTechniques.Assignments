@@ -16,7 +16,7 @@ int main() {
     int *parr;
     
     x = 10;
-    y = 5;
+    y = sizeof(c);
     c = 'A';
 
     PRINT(c);

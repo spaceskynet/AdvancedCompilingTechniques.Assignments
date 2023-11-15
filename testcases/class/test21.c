@@ -3,22 +3,38 @@ extern void * MALLOC(int);
 extern void FREE(void *);
 extern void PRINT(int);
 
-void set(int *a, int b) {
-   int c;
-   c = b + 1;
-   *a = c;
+void print1(int);
+void print2(int);
+   
+void  print1(int x)
+{
+    if (x > 3) { 
+    	PRINT(x-1);
+	print2(x-3);
+    }
+    PRINT(x);
 }
 
-int main() {
-   int* a; 
-   int b;
-   a = (int *) MALLOC(sizeof(int));
+void print2(int b)
+{
+     if (b > 2) {
+	 PRINT(b);
+	 print1(b-2);
+     }
+}
+
+
+
+  
    
-   b = 10;
-   set(a, b);
-   PRINT(*a);
-   FREE(a);
+int main() {
+   int a[10];
+   int i;
+
+   a[0] = 0;
+   a[1] = 1;
+   for (i=2; i<10; i=i+1)
+	a[i] = a[i-1]+a[i-2];
+   print1(a[9]);
    return 0;
 }
-
-

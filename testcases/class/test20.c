@@ -5,10 +5,17 @@ extern void PRINT(int);
 
    
 int  fibonacci(int b) {
+   int i;
    int c;
+   int a[2];
+
    if (b < 2)
       return b;
-   c = fibonacci(b-1) + fibonacci(b-2);
+   for (i=0; i< 2; i=i+1)
+   {
+       a[i] = b-1-i;
+   }
+   c = fibonacci(a[0]) + fibonacci(a[1]);
    return c;
 }  
    
@@ -21,4 +28,3 @@ int main() {
    PRINT(b);
    return 0;
 }
-

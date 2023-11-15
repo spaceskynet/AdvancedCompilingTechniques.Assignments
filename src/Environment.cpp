@@ -15,9 +15,10 @@ bool StackFrame::findDecl(Decl *decl)
 {
     return mVars.find(decl) != mVars.end();
 }
-int64_t StackFrame::getDeclVal(Decl *decl) {
-  assert(this->findDecl(decl));
-  return mVars.find(decl)->second;
+int64_t StackFrame::getDeclVal(Decl *decl)
+{
+    assert(this->findDecl(decl));
+    return mVars.find(decl)->second;
 }
 void StackFrame::bindStmt(Stmt *stmt, int64_t val)
 {
@@ -86,8 +87,7 @@ void Environment::init(TranslationUnitDecl *unit)
 {
     for (auto *SubDecl : unit->decls())
     {
-        if (VarDecl *vardecl = dyn_cast<VarDecl>(SubDecl))
-        {
+        if (VarDecl *vardecl = dyn_cast<VarDecl>(SubDecl)) {
             int64_t val = getDeclVal(vardecl);
             mGlobal.bindDecl(vardecl, val);
         }
@@ -151,7 +151,9 @@ void Environment::bindDecl(Expr *expr, int64_t val)
     {
         int64_t addr = getPtrVal(arraysub);
         QualType type = arraysub->getType();
-        if(type->isIntegerType() || type->isCharType()) {
+        if(type->isCharType()) {
+            *((char *)addr) = (char)val;
+        } else if(type->isIntegerType()) {
             *((int *)addr) = (int)val;
         } else if(type->isPointerType()) {
             *((int64_t *)addr) = val;
@@ -162,7 +164,9 @@ void Environment::bindDecl(Expr *expr, int64_t val)
         assert(uop->getOpcode() == UO_Deref);
         int64_t addr = getPtrVal(uop);
         QualType type = uop->getType();
-        if(type->isIntegerType() || type->isCharType()) {
+        if(type->isCharType()) {
+            *((char *)addr) = (char)val;
+        } else if(type->isIntegerType()) {
             *((int *)addr) = (int)val;
         } else if(type->isPointerType()) {
             *((int64_t *)addr) = val;
@@ -211,7 +215,6 @@ void Environment::paren(Expr *expr)
     );
 }
 
-/// !TODO Support comparison operation
 void Environment::binop(BinaryOperator *bop)
 {
     Expr *left = bop->getLHS();
@@ -224,20 +227,24 @@ void Environment::binop(BinaryOperator *bop)
 
     QualType leftType = left->getType();
     QualType rightType = right->getType();
-
-    if(leftType->isPointerType() && (rightType->isIntegerType() || rightType->isCharType()))
+    
+    if(leftType->isPointerType() && (rightType->isCharType() || rightType->isIntegerType()))
     {
         QualType peType = leftType->getPointeeType();
-        if (peType->isIntegerType() || peType->isCharType()) {
+        if(peType->isCharType()) {
+            rightVal *= sizeof(char);
+        } else if (peType->isIntegerType()) {
             rightVal *= sizeof(int);
         } else if (peType->isPointerType()) {
             rightVal *= sizeof(void *);
         }
     }
-    else if ((leftType->isIntegerType() || leftType->isCharType()) && rightType->isPointerType())
+    else if ((leftType->isCharType() || leftType->isIntegerType()) && rightType->isPointerType())
     {
         QualType peType = rightType->getPointeeType();
-        if (peType->isIntegerType() || peType->isCharType()) {
+        if(peType->isCharType()) {
+            leftVal *= sizeof(char);
+        } else if (peType->isIntegerType()) {
             leftVal *= sizeof(int);
         } else if (peType->isPointerType()) {
             leftVal *= sizeof(void *);
@@ -248,8 +255,8 @@ void Environment::binop(BinaryOperator *bop)
     // from clang/AST/OperationKinds.def
     if (bop->isAssignmentOp())
     {
-        // 左值为整数/字符，右值为指针非法
-        assert(!((leftType->isIntegerType() || leftType->isCharType()) && rightType->isPointerType()));
+        // 左值为字符/整数，右值为指针非法
+        assert(!((leftType->isCharType() || leftType->isIntegerType()) && rightType->isPointerType()));
         switch (op) 
         {
             case BO_Assign:
@@ -346,7 +353,9 @@ void Environment::unaryop(UnaryOperator *uop)
         int unit = 1;
         if (type->isPointerType()) {
             QualType peType = type->getPointeeType();
-            if (peType->isIntegerType() || peType->isCharType()) {
+            if(peType->isCharType()) {
+                unit = sizeof(char);
+            } else if (peType->isIntegerType()) {
                 unit = sizeof(int);
             } else if (peType->isPointerType()) {
                 unit = sizeof(void *);
@@ -395,7 +404,9 @@ void Environment::unaryop(UnaryOperator *uop)
 
             case UO_Deref: {
                 QualType type = uop->getType();
-                if (type->isIntegerType() || type->isCharType()) {
+                if(type->isCharType()) {
+                    val = *((char *)exprVal);
+                } else if (type->isIntegerType()) {
                     val = *((int *)exprVal);
                 } else if (type->isPointerType()) {
                     val = *((int64_t *)exprVal);
@@ -434,9 +445,6 @@ void Environment::ueott(UnaryExprOrTypeTraitExpr *ueott)
         QualType argType = ueott->getTypeOfArgument();
         CharUnits sizeInChars = context.getTypeSizeInChars(argType);
         size = sizeInChars.getQuantity();
-
-        // 本解释器中将 Char 视作 int 存储，故需要在此打个 patch
-        if(argType->isCharType()) size = sizeof(int);
     }
     else
     {
@@ -452,7 +460,7 @@ void Environment::vardecl(Decl *decl)
     VarDecl *vardecl = dyn_cast<VarDecl>(decl);
     if(vardecl == nullptr) return;
     QualType type = vardecl->getType();
-    if(type->isIntegerType() || type->isPointerType())
+    if(type->isCharType() || type->isIntegerType() || type->isPointerType())
     {
         int64_t val = 0;
         if(vardecl->hasInit()) {
@@ -469,7 +477,10 @@ void Environment::vardecl(Decl *decl)
         int size = array->getSize().getSExtValue();
         QualType elemType = array->getElementType();
         void *addr = nullptr;
-        if(elemType->isIntegerType() || elemType->isCharType()) {
+        if(elemType->isCharType()) {
+            addr = mHeap.Malloc(size * sizeof(char));
+            for(int i = 0; i < size; ++i) *((char *)addr + i) = 0;
+        } else if(elemType->isIntegerType()) {
             addr = mHeap.Malloc(size * sizeof(int));
             for(int i = 0; i < size; ++i) *((int *)addr + i) = 0;
         } else if(elemType->isPointerType()) {
@@ -502,11 +513,11 @@ void Environment::declref(DeclRefExpr *declref)
     QualType type = declref->getType();
     
     // declref 时，获取当前 Decl 的值绑定到当前 Stmt，但是不对函数进行处理（Call函数单独处理）
-    if (type->isIntegerType() || type->isArrayType() || type->isPointerType())
+    if (type->isCharType() || type->isIntegerType() || type->isArrayType() || type->isPointerType())
     {
         Decl *decl = declref->getFoundDecl();
 
-        int val = getDeclVal(decl);
+        int64_t val = getDeclVal(decl);
         bindStmt(declref, val);
     }
     else if(!type->isFunctionType())
@@ -521,12 +532,12 @@ void Environment::cast(CastExpr *castexpr)
     QualType type = castexpr->getType();
 
     // cast 时，不能包括 FunctionPointer，因为栈帧中可能并没有其信息，如果是指定的那几个extern函数
-    if (type->isIntegerType() || type->isCharType() ||
+    if (type->isCharType() || type->isIntegerType() ||
         (type->isPointerType() && !type->isFunctionPointerType()))
     {
         Expr *expr = castexpr->getSubExpr();
 
-        int val = getStmtVal(expr);
+        int64_t val = getStmtVal(expr);
         bindStmt(castexpr, val);
     }
     else if(!type->isFunctionPointerType())
@@ -544,7 +555,10 @@ void Environment::arraysub(ArraySubscriptExpr *arraysub)
     QualType type = arraysub->getType();
 
     int64_t val = 0, addr = 0;
-    if(type->isIntegerType() || type->isCharType()) {
+    if(type->isCharType()) {
+        addr = getStmtVal(base) + getStmtVal(index) * sizeof(char);
+        val = *((char *)addr);
+    } else if(type->isIntegerType()) {
         addr = getStmtVal(base) + getStmtVal(index) * sizeof(int);
         val = *((int *)addr);
     } else if(type->isPointerType()) {
