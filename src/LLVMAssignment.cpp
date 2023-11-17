@@ -36,7 +36,7 @@
 namespace self {
     bool useErrs = true, useErrsInsteadOuts = false;
     llvm::raw_ostream &errs() {
-        return useErrs ? llvm::errs() : llvm::nulls();
+        return useErrs && !useErrsInsteadOuts ? llvm::errs() : llvm::nulls();
     }
     llvm::raw_ostream &outs() {
         return useErrsInsteadOuts ? llvm::errs() : llvm::outs();
@@ -83,7 +83,6 @@ struct FuncPtrPass : public ModulePass
         for (Function &func : M) {
             if (func.isDeclaration()) continue;
             for (BasicBlock &block : func) {
-                // if (isa<DbgInfoIntrinsic>(block)) continue;
                 for (Instruction &inst : block) {
                     if (isa<llvm::DbgInfoIntrinsic>(inst)) continue;
                     if (CallInst *callinst = dyn_cast<CallInst>(&inst)) {
@@ -105,15 +104,36 @@ struct FuncPtrPass : public ModulePass
         else
         {
             Value *operand = callinst->getCalledOperand();
-
-            if (CallInst *innercall = dyn_cast<CallInst>(operand)) {
-
-            }
-            else {
-                handleValue(operand);
-            }
+            handleValue(operand);
         }
         printResult(lineno);
+    }
+
+    void handleInnerCallInst(CallInst *callinst)
+    {
+        if (Function *func = callinst->getCalledFunction())
+        {
+            handleFunctionReturn(func);
+        }
+        else
+        {
+            Value *operand = callinst->getCalledOperand();
+            handleValue(operand);
+        }
+    }
+
+    void handleFunctionReturn(Function *func)
+    {
+        // 在调用函数中遍历寻找 return 语句
+        for (BasicBlock &block : *func) {
+            for (Instruction &inst : block) {
+                if (isa<llvm::DbgInfoIntrinsic>(inst)) continue;
+                if (ReturnInst *returninst = dyn_cast<ReturnInst>(&inst)) {
+                    Value *retval = returninst->getReturnValue();
+                    handleValue(retval);
+                }
+            }
+        }
     }
 
     void handleFunction(Function *func)
@@ -135,7 +155,7 @@ struct FuncPtrPass : public ModulePass
     void handleValue(Value *value)
     {
         if (CallInst *callinst = dyn_cast<CallInst>(value)) {
-            handleCallInst(callinst);
+            handleInnerCallInst(callinst);
         }
         else if (PHINode *phinode = dyn_cast<PHINode>(value)) {
             handlePHINode(phinode);
