@@ -78,7 +78,7 @@ struct FuncPtrPass : public ModulePass
     {
         self::errs() << "Hello: ";
         self::errs().write_escaped(M.getName()) << '\n';
-        M.print(errs(), nullptr);
+        M.print(self::errs(), nullptr);
         self::errs() << "------------------------------\n";
         for (Function &func : M) {
             if (func.isDeclaration()) continue;
@@ -109,14 +109,8 @@ struct FuncPtrPass : public ModulePass
             if (CallInst *innercall = dyn_cast<CallInst>(operand)) {
 
             }
-            else if (PHINode *phinode = dyn_cast<PHINode>(operand)) {
-                handlePHINode(phinode);
-            }
-            else if (Argument *argument = dyn_cast<Argument>(operand)) {
-                handleArgument(argument);
-            }
             else {
-                self::errs() << "Unsupported Operand: " << *operand << ".\n";
+                handleValue(operand);
             }
         }
         printResult(lineno);
@@ -159,7 +153,18 @@ struct FuncPtrPass : public ModulePass
 
     void handleArgument(Argument *argument)
     {
-
+        // argument->print(self::outs());
+        unsigned int argindex = argument->getArgNo();
+        Function *parentfunc = argument->getParent();
+        for (User *user : parentfunc->users()) {
+            if (CallInst *callinst = dyn_cast<CallInst>(user)) {
+                // callinst->print(self::outs());
+                Value * operand = callinst->getArgOperand(argindex);
+                handleValue(operand);
+            } else {
+                self::errs() << "Unsupported user of parentfunc for argument: " << *user << ".\n";
+            }
+        }
     }
 
     void printResult(int lineno)
@@ -172,6 +177,7 @@ struct FuncPtrPass : public ModulePass
             self::outs() << *iter;
         }
         self::outs() << "\n";
+        funcList.clear();
     }
 };
 
