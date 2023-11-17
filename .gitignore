@@ -6,6 +6,7 @@ build/
 *.ll
 *.png
 tmp/
+testcases/self/
 
 # Prerequisites
 *.d

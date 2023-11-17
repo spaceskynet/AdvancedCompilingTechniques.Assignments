@@ -73,6 +73,9 @@ struct FuncPtrPass : public ModulePass
     static char ID; // Pass identification, replacement for typeid
     FuncPtrPass() : ModulePass(ID) {}
     std::set<std::string> funcList;
+    std::map<Function *, std::set<CallInst *> > funcUsers;
+    std::stack<CallInst *> callinstStack;
+    std::map<PHINode *, Value *> phiNodeIncome;
 
     bool runOnModule(Module &M) override 
     {
@@ -80,6 +83,9 @@ struct FuncPtrPass : public ModulePass
         self::errs().write_escaped(M.getName()) << '\n';
         M.print(self::errs(), nullptr);
         self::errs() << "------------------------------\n";
+        for (Function &func : M) {
+            initFunctionUsers(&func);
+        }
         for (Function &func : M) {
             if (func.isDeclaration()) continue;
             for (BasicBlock &block : func) {
@@ -94,8 +100,34 @@ struct FuncPtrPass : public ModulePass
         return false;
     }
 
+    void saveCallInst(CallInst *callinst)
+    {
+        callinstStack.push(callinst);
+    }
+
+    void delCallInst()
+    {
+        callinstStack.pop();
+    }
+
+    void initFunctionUsers(Function *func)
+    {
+        for (User *user : func->users())
+        {
+            if (CallInst *callinst = dyn_cast<CallInst>(user)) {
+                funcUsers[func].insert(callinst);
+            }
+        }
+    }
+
+    void bindFunctionUsers(Function *func)
+    {
+        funcUsers[func].insert(callinstStack.top());
+    }
+
     void handleCallInst(CallInst *callinst)
     {
+        saveCallInst(callinst);
         int lineno = callinst->getDebugLoc().getLine();
         if (Function *func = callinst->getCalledFunction())
         {
@@ -104,13 +136,15 @@ struct FuncPtrPass : public ModulePass
         else
         {
             Value *operand = callinst->getCalledOperand();
-            handleValue(operand);
+            handleValue(operand, false);
         }
+        delCallInst();
         printResult(lineno);
     }
 
     void handleInnerCallInst(CallInst *callinst)
     {
+        saveCallInst(callinst);
         if (Function *func = callinst->getCalledFunction())
         {
             handleFunctionReturn(func);
@@ -118,19 +152,20 @@ struct FuncPtrPass : public ModulePass
         else
         {
             Value *operand = callinst->getCalledOperand();
-            handleValue(operand);
+            handleValue(operand, true);
         }
+        delCallInst();
     }
 
     void handleFunctionReturn(Function *func)
     {
+        bindFunctionUsers(func);
         // 在调用函数中遍历寻找 return 语句
         for (BasicBlock &block : *func) {
             for (Instruction &inst : block) {
-                if (isa<llvm::DbgInfoIntrinsic>(inst)) continue;
                 if (ReturnInst *returninst = dyn_cast<ReturnInst>(&inst)) {
                     Value *retval = returninst->getReturnValue();
-                    handleValue(retval);
+                    handleValue(retval, false);
                 }
             }
         }
@@ -138,50 +173,78 @@ struct FuncPtrPass : public ModulePass
 
     void handleFunction(Function *func)
     {
+        bindFunctionUsers(func);
         // Returns true if the function's name starts with "llvm.".
         if (func->isIntrinsic()) return;
         std::string funcName = func->getName().str();
         funcList.insert(funcName);
     }
 
-    void handlePHINode(PHINode *phinode)
+    void bindPHINodeIncome(PHINode *phinode, Value *incomevalue)
     {
+        phiNodeIncome[phinode] = incomevalue;
+    }
+
+    void unBindPHINodeIncome(PHINode *phinode)
+    {
+        phiNodeIncome.erase(phinode);
+    }
+
+    void handlePHINode(PHINode *phinode, bool iscall)
+    {
+        // phinode->print(self::outs()), self::outs() << "\n";
+        if (phiNodeIncome.find(phinode) != phiNodeIncome.end()) {
+            handleValue(phiNodeIncome[phinode], iscall);
+            return;
+        }
         for (Value *incomevalue : phinode->incoming_values())
         {
-            handleValue(incomevalue);
+            bindPHINodeIncome(phinode, incomevalue);
+            handleValue(incomevalue, iscall);
+            unBindPHINodeIncome(phinode);
         }
     }
 
-    void handleValue(Value *value)
+    void handleValue(Value *value, bool iscall)
     {
         if (CallInst *callinst = dyn_cast<CallInst>(value)) {
             handleInnerCallInst(callinst);
         }
         else if (PHINode *phinode = dyn_cast<PHINode>(value)) {
-            handlePHINode(phinode);
+            handlePHINode(phinode, iscall);
         }
         else if (Function *func = dyn_cast<Function>(value)) {
-            handleFunction(func);
+            if (iscall) handleFunctionReturn(func);
+            else handleFunction(func);
         }
         else if (Argument *argument = dyn_cast<Argument>(value)) {
-            handleArgument(argument);
+            handleArgument(argument, iscall);
         }
         else {
             self::errs() << "Unsupported Value: " << *value << ".\n";
         }
     }
 
-    void handleArgument(Argument *argument)
+    void handleArgument(Argument *argument, bool iscall)
     {
         // argument->print(self::outs());
         unsigned int argindex = argument->getArgNo();
         Function *parentfunc = argument->getParent();
-        for (User *user : parentfunc->users()) {
+        // parentfunc->print(self::outs()), self::outs() << ":\n";
+        for (User *user : funcUsers[parentfunc])
+        {
+            // user->print(self::outs()), self::outs() << "\n";
             if (CallInst *callinst = dyn_cast<CallInst>(user)) {
                 // callinst->print(self::outs());
                 Value * operand = callinst->getArgOperand(argindex);
-                handleValue(operand);
-            } else {
+                handleValue(operand, iscall);
+            }
+            // else if (PHINode *phinode = dyn_cast<PHINode>(user)) {
+            //     for (User *phiuser : phinode->users()) {
+
+            //     }
+            // }
+            else {
                 self::errs() << "Unsupported user of parentfunc for argument: " << *user << ".\n";
             }
         }
