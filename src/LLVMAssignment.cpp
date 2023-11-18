@@ -72,30 +72,24 @@ struct FuncPtrPass : public ModulePass
 {
     static char ID; // Pass identification, replacement for typeid
     FuncPtrPass() : ModulePass(ID) {}
-    std::set<std::string> funcList;
     std::map<int, std::set<std::string> > lineFuncList;
-
     std::map<Function *, CallInst *> funcUser;
-    std::stack<CallInst *> callinstStack;
-
-    std::map<PHINode *, Value *> phiNodeIncoming;
-    std::set<BasicBlock *> selectedPhiNodeBasicBlock;
+    std::set<BasicBlock *> selectedBlock;
 
     bool runOnModule(Module &M) override 
     {
-        self::errs() << "Hello: ";
-        self::errs().write_escaped(M.getName()) << '\n';
-        M.print(self::errs(), nullptr);
-        self::errs() << "------------------------------\n";
+        // self::errs() << "Hello: ";
+        // self::errs().write_escaped(M.getName()) << '\n';
+        // M.print(self::errs(), nullptr);
+        // self::errs() << "------------------------------\n";
+        std::stack<CallInst *> callinstStack;
         for (Function &func : M) {
             if (func.isDeclaration()) continue;
             for (BasicBlock &block : func) {
                 for (Instruction &inst : block) {
                     if (isa<llvm::DbgInfoIntrinsic>(inst)) continue;
                     if (CallInst *callinst = dyn_cast<CallInst>(&inst)) {
-                        // callinst->print(self::outs()), self::outs() << ":\n";
-                        handleCallInst(callinst);
-                        // self::outs() << "\n";
+                        handleCallInst(callinst, false, callinstStack);
                     }
                 }
             }
@@ -104,85 +98,62 @@ struct FuncPtrPass : public ModulePass
         return false;
     }
 
-    void saveCallInst(CallInst *callinst) { callinstStack.push(callinst); }
-
-    void delCallInst() { callinstStack.pop(); }
-
-    void bindFunctionUser(Function *func) { funcUser[func] = callinstStack.top(); }
-
-    void unBindFunctionUser(Function *func) { funcUser.erase(func); }
-
-    // runOnModule 遍历到的 Call 才是需要输出的
-    void handleCallInst(CallInst *callinst)
+    void handleCallInst(CallInst *callinst, bool isInnerCall, std::stack<CallInst *> callinstStack)
     {
-        saveCallInst(callinst);
-
-        int lineno = callinst->getDebugLoc().getLine();
-        Value *operand = callinst->getCalledOperand();
-        handleValue(operand, false);
-
-        delCallInst();
-
-        saveResult(lineno);
-    }
-
-    // 在查找真正 Call 的 func 过程中，内部调用的函数都只是需要其返回值
-    void handleInnerCallInst(CallInst *callinst)
-    {
-        saveCallInst(callinst);
+        callinstStack.push(callinst);
 
         Value *operand = callinst->getCalledOperand();
-        handleValue(operand, true);
+        handleValue(operand, isInnerCall, callinstStack);
 
-        delCallInst();
+        callinstStack.pop();
     }
 
-    void handleFunctionReturn(Function *func)
+    void handleFunctionReturn(Function *func, std::stack<CallInst *> callinstStack)
     {
-        bindFunctionUser(func);
-        // 在调用函数中遍历寻找 return 语句
+        funcUser[func] = callinstStack.top(), callinstStack.pop();
+
+        // 在调用的 func 函数中遍历寻找 return 语句
         for (BasicBlock &block : *func) {
             for (Instruction &inst : block) {
+                if (isa<llvm::DbgInfoIntrinsic>(inst)) continue;
                 if (ReturnInst *returninst = dyn_cast<ReturnInst>(&inst)) {
                     Value *retval = returninst->getReturnValue();
-                    handleValue(retval, false);
+                    handleValue(retval, false, callinstStack);
                 }
             }
         }
+
+        funcUser.erase(func);
     }
 
-    void handleFunction(Function *func)
+    void handleFunction(Function *func, std::stack<CallInst *> callinstStack)
     {
-        bindFunctionUser(func);
-        // Returns true if the function's name starts with "llvm.".
-        if (func->isIntrinsic()) return;
-        std::string funcName = func->getName().str();
-        funcList.insert(funcName);
-    }
+        // 跳过名称由 "llvm." 开头的函数
+        // if (func->isIntrinsic()) return;
+        funcUser[func] = callinstStack.top(), callinstStack.pop();
+        saveResult(func, funcUser[func]);
 
-    void bindPHINodeIncome(PHINode *phinode, Value *incomingvalue) {
-        phiNodeIncoming[phinode] = incomingvalue;
-    }
-
-    void unBindPHINodeIncome(PHINode *phinode) {
-        phiNodeIncoming.erase(phinode);
-    }
-
-    void handlePHINode(PHINode *phinode, bool isInnerCall)
-    {
-        // phinode->print(self::outs()), self::outs() << "\n";
-        // 如果之前已经选择了这个 phi 结点的某个 Income，则不再遍历 phi 结点的 incomes
-        if (phiNodeIncoming.find(phinode) != phiNodeIncoming.end()) {
-            handleValue(phiNodeIncoming[phinode], isInnerCall);
-            return;
+        // 遍历 func 内部调用的函数
+        for (BasicBlock &block : *func) {
+            for (Instruction &inst : block) {
+                if (isa<llvm::DbgInfoIntrinsic>(inst)) continue;
+                if (CallInst *callinst = dyn_cast<CallInst>(&inst)) {
+                    handleCallInst(callinst, false, callinstStack);
+                }
+            }
         }
-        for (BasicBlock *block : selectedPhiNodeBasicBlock) {
+
+        funcUser.erase(func);
+    }
+
+    void handlePHINode(PHINode *phinode, bool isInnerCall, std::stack<CallInst *> callinstStack)
+    {
+        // 保证同一基本块内的 phi 结点的前驱基本块一致（保证了test14的精确结果：32 : plus）
+        for (BasicBlock *block : selectedBlock) {
             int i = phinode->getBasicBlockIndex(block);
-            if(i != -1) {
+            if (i != -1) { // 如果在当前 phi 结点的前驱基本块中存在已经被选定的基本块，直接选定对应分支处理后 return
                 Value *incomingvalue = phinode->getIncomingValue(i);
-                bindPHINodeIncome(phinode, incomingvalue);
-                handleValue(incomingvalue, isInnerCall);
-                unBindPHINodeIncome(phinode);
+                handleValue(incomingvalue, isInnerCall, callinstStack);
                 return;
             }
         }
@@ -191,66 +162,56 @@ struct FuncPtrPass : public ModulePass
             Value *incomingvalue = phinode->getIncomingValue(i);
             BasicBlock *incomingblock = phinode->getIncomingBlock(i);
 
-            bindPHINodeIncome(phinode, incomingvalue);
-            selectedPhiNodeBasicBlock.insert(incomingblock);
-            // self::outs() << incomingvalue->getName() << *incomingblock << "\n";
-            handleValue(incomingvalue, isInnerCall);
-            selectedPhiNodeBasicBlock.erase(incomingblock);
-            unBindPHINodeIncome(phinode);
+            selectedBlock.insert(incomingblock);
+            handleValue(incomingvalue, isInnerCall, callinstStack);
+            selectedBlock.erase(incomingblock);
         }
     }
 
-    void handleValue(Value *value, bool isInnerCall)
+    void handleValue(Value *value, bool isInnerCall, std::stack<CallInst *> callinstStack)
     {
         if (CallInst *callinst = dyn_cast<CallInst>(value)) {
-            handleInnerCallInst(callinst);
+            handleCallInst(callinst, true, callinstStack);
         }
         else if (PHINode *phinode = dyn_cast<PHINode>(value)) {
-            handlePHINode(phinode, isInnerCall);
+            handlePHINode(phinode, isInnerCall, callinstStack);
         }
         else if (Function *func = dyn_cast<Function>(value)) {
             if (isInnerCall)
-                handleFunctionReturn(func);
+                handleFunctionReturn(func, callinstStack);
             else
-                handleFunction(func);
+                handleFunction(func, callinstStack);
         }
         else if (Argument *argument = dyn_cast<Argument>(value)) {
-            handleArgument(argument, isInnerCall);
+            handleArgument(argument, isInnerCall, callinstStack);
         }
         else {
             self::errs() << "Unsupported Value: " << *value << ".\n";
         }
     }
 
-    void handleArgument(Argument *argument, bool isInnerCall)
+    void handleArgument(Argument *argument, bool isInnerCall, std::stack<CallInst *> callinstStack)
     {
-        // argument->print(self::outs());
         unsigned int argindex = argument->getArgNo();
         Function *parentfunc = argument->getParent();
-        // parentfunc->print(self::outs()), self::outs() << ":\n";
 
-        // 嵌套调用时，在处理返回值时，回溯寻找参数
+        // 嵌套调用时，回溯寻找参数
         if (funcUser.find(parentfunc) != funcUser.end()) {
             CallInst *callinst = funcUser[parentfunc];
-            unBindFunctionUser(parentfunc);
             Value *operand = callinst->getArgOperand(argindex);
-            handleValue(operand, isInnerCall);
-            return;
+            handleValue(operand, isInnerCall, callinstStack);
         }
+        else {
+            self::errs() << "Unexpected Parent Function: " << *parentfunc << ".\n";
+        }
+    }
 
-        // 
-        for (User *user : parentfunc->users())
-        {
-            if (CallInst *callinst = dyn_cast<CallInst>(user)) {
-                Function *calledfunc = callinst->getCalledFunction();
-                if (calledfunc != parentfunc) continue;
-                Value * operand = callinst->getArgOperand(argindex);
-                handleValue(operand, isInnerCall);
-            }
-            else {
-                self::errs() << "Unsupported user of parentfunc for argument: " << *user << ".\n";
-            }
-        }
+    void saveResult(Function *func, CallInst *callinst)
+    {
+        std::string funcName = func->getName().str();
+        int lineno = callinst->getDebugLoc().getLine();
+
+        lineFuncList[lineno].insert(funcName);
     }
 
     void printResult()
@@ -271,13 +232,6 @@ struct FuncPtrPass : public ModulePass
         }
         lineFuncList.clear();
     }
-
-    void saveResult(int lineno)
-    {
-        if (funcList.empty()) return;
-        lineFuncList[lineno].insert(funcList.begin(), funcList.end());
-        funcList.clear();
-    }
 };
 
 char FuncPtrPass::ID = 0;
@@ -295,7 +249,7 @@ int main(int argc, char **argv)
     SMDiagnostic Err;
     // Parse the command line to read the Inputfilename
     cl::ParseCommandLineOptions(
-        argc, argv, "FuncPtrPass \n My first LLVM too which does not do much.\n");
+        argc, argv, "FuncPtrPass \n LLVM Pass to print function call in IR.\n");
 
     // 是否开启错误流输出
     bool enableStdErrOutput = StdErrOption;

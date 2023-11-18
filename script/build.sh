@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-WORK_DIR=$(cd `dirname $0`; pwd)
+WORK_DIR=$(cd `dirname $0`; cd ..; pwd)
 
 mkdir -p $WORK_DIR/build && cd $WORK_DIR/build
 rm -rf ./* 

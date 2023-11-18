@@ -6,6 +6,7 @@ build/
 *.ll
 *.png
 *.ans
+*.tar.gz
 tmp/
 testcases/self/
 

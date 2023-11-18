@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # 源代码目录
-WORK_DIR=$(cd `dirname $0`; pwd)
+WORK_DIR=$(cd `dirname $0`; cd ..; pwd)
 
 if [ $# -lt 1 ]; then
     echo "Error: At least one argument is required."
     exit 1
 fi
 
-src_dir="$WORK_DIR/$1"
+src_dir="$WORK_DIR/testcases/$1"
 # 目标目录，用于存储生成的 ll 文件和 CallGraph 等 png
 ll_dir="$src_dir"
 

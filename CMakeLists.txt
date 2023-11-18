@@ -51,7 +51,7 @@ set(test_data
   "test11\;^15 : foo\n16 : plus\n32 : clever\n$"
   "test12\;^15 : foo\n16 : ((plus, minus)|(minus, plus))\n32 : clever\n$"
   "test13\;^30 : ((clever, foo)|(foo, clever))\n31 : ((plus, minus)|(minus, plus))\n$"
-  "test14\;^24 : foo\n31 : ((clever, foo)|(foo, clever))\n32 : plus\n$"
+  "test14\;^24 : foo\n31 : ((clever, foo)|(foo, clever))\n32 : ((plus, minus)|(minus, plus)|(plus))\n$"
   "test15\;^14 : ((plus, minus)|(minus, plus))\n24 : foo\n27 : foo\n$"
   "test16\;^14 : foo\n17 : clever\n24 : clever1\n25 : plus\n$"
   "test17\;^14 : foo\n17 : clever\n24 : clever1\n25 : plus\n$"
