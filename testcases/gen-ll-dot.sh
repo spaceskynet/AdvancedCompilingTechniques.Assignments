@@ -27,12 +27,13 @@ find "$src_dir" -type f -name "*.c" | while read -r source_file; do
   # 使用 clang 生成 ll, 并处理为 SSA
   clang -Xclang -disable-O0-optnone -O0 -S -emit-llvm "$source_file" -o "$ll_file"
   opt -S -mem2reg -o "$ll_m2r_file" "$ll_file"
-  # opt -dot-cfg "$ll_m2r_file" > /dev/null
+  opt -dot-cfg "$ll_m2r_file" > /dev/null
   opt -dot-callgraph "$ll_m2r_file" > /dev/null
 
   # 生成 png 图片，需要提前安装 graphviz
-  # dot -Tpng -o "$png_file" .$2.dot
+  # dot -Tpng -o "$png_file" .moo.dot
   dot -Tpng -o "$callgraph_png_file" callgraph.dot
+  rm -f .*.dot
   rm -f callgraph.dot
 
   if [ $? -eq 0 ]; then

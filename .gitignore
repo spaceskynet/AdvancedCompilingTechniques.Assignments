@@ -5,6 +5,7 @@ build/
 *.bc
 *.ll
 *.png
+*.ans
 tmp/
 testcases/self/
 
