@@ -6,22 +6,35 @@
  *
  ***********************************************************************/
 
-#ifndef _DATAFLOW_H_
-#define _DATAFLOW_H_
+#pragma once
 
-#include <llvm/Support/raw_ostream.h>
-#include <map>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/Function.h>
+
+#include <llvm/Support/raw_ostream.h>
+
+#include <map>
+#include <set>
+
+namespace self {
+    bool useErrs = true, useErrsInsteadOuts = false;
+    llvm::raw_ostream &errs() {
+        return useErrs && !useErrsInsteadOuts ? llvm::errs() : llvm::nulls();
+    }
+    llvm::raw_ostream &outs() {
+        return useErrsInsteadOuts ? llvm::errs() : llvm::outs();
+    }
+}
 
 using namespace llvm;
 
 ///Base dataflow visitor class, defines the dataflow function
 
 template <class T>
-class DataflowVisitor {
-public:
+class DataflowVisitor
+{
+  public:
     virtual ~DataflowVisitor() { }
 
     /// Dataflow Function invoked for each basic block 
@@ -65,7 +78,8 @@ public:
 /// For each basicblock, we compute its input dataflow val and its output dataflow val
 ///
 template<class T>
-struct DataflowResult {
+struct DataflowResult
+{
     typedef typename std::map<BasicBlock *, std::pair<T, T> > Type;
 };
 
@@ -82,7 +96,8 @@ template<class T>
 void compForwardDataflow(Function *fn,
     DataflowVisitor<T> *visitor,
     typename DataflowResult<T>::Type *result,
-    const T & initval) {
+    const T & initval)
+{
     return;
 }
 /// 
@@ -98,7 +113,8 @@ template<class T>
 void compBackwardDataflow(Function *fn,
     DataflowVisitor<T> *visitor,
     typename DataflowResult<T>::Type *result,
-    const T &initval) {
+    const T &initval)
+{
 
     std::set<BasicBlock *> worklist;
 
@@ -136,11 +152,12 @@ void compBackwardDataflow(Function *fn,
 
 template<class T>
 void printDataflowResult(raw_ostream &out,
-                         const typename DataflowResult<T>::Type &dfresult) {
+                         const typename DataflowResult<T>::Type &dfresult)
+{
     for ( typename DataflowResult<T>::Type::const_iterator it = dfresult.begin();
             it != dfresult.end(); ++it ) {
         if (it->first == NULL) out << "*";
-        else it->first->dump();
+        else it->first->print(self::errs());
         out << "\n\tin : "
             << it->second.first 
             << "\n\tout :  "
@@ -148,11 +165,3 @@ void printDataflowResult(raw_ostream &out,
             << "\n";
     }
 }
-
-
-
-
-
-
-
-#endif /* !_DATAFLOW_H_ */

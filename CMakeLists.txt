@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.1.0)
-project(assign2)
+project(assign3)
 find_package(LLVM REQUIRED CONFIG HINTS ${LLVM_DIR} ${LLVM_DIR}/lib/cmake/llvm
 	                NO_DEFAULT_PATH)
 
@@ -14,8 +14,10 @@ set(LLVM_LINK_COMPONENTS
 
 message(STATUS "LLVM LIBS : ${LLVM_LINK_COMPONENTS}")
 # Support plugins.
-file(GLOB SOURCE "./*.cpp") 
+file(GLOB SOURCE "./src/*.cpp") 
 add_executable(assignment3 ${SOURCE}) 
+
+target_compile_options(assignment3 PRIVATE -fno-rtti)
 
 target_link_libraries(assignment3
 	${LLVM_LINK_COMPONENTS}
