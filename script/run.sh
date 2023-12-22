@@ -15,4 +15,4 @@ if ! [ -e $testcase ]; then
     exit 1
 fi
 
-./build/assignment3 $testcase
+./build/assignment3 $testcase -e

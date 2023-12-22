@@ -23,9 +23,9 @@ int foo(int a, int b, int (**a_fptr)(int, int), int(**b_fptr)(int, int)) {
 }
 
 int clever(int a, int b, int (**a_fptr)(int, int), int(**b_fptr)(int, int)) {
-	int (*t_fptr)(int, int)=*a_fptr;
-	*a_fptr=*b_fptr;
-	*b_fptr=t_fptr;
+	int (*t_fptr)(int, int)=*a_fptr; // plus
+	*a_fptr=*b_fptr; // plus or minus
+	*b_fptr=t_fptr; // plus
     return foo(a, b, a_fptr, b_fptr);
 }
 

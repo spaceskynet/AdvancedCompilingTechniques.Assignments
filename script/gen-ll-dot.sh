@@ -25,7 +25,7 @@ find "$src_dir" -type f -name "*.c" | while read -r source_file; do
   callgraph_png_file="$ll_dir/${source_filename%.c}.callgraph.png"
 
   # 使用 clang 生成 ll, 并处理为 SSA
-  clang -Xclang -disable-O0-optnone -O0 -S -emit-llvm "$source_file" -o "$ll_file"
+  clang -Xclang -disable-O0-optnone -O0 -g3 -S -emit-llvm "$source_file" -o "$ll_file"
   opt -S -mem2reg -o "$ll_m2r_file" "$ll_file"
   opt -dot-cfg "$ll_m2r_file" > /dev/null
   opt -dot-callgraph "$ll_m2r_file" > /dev/null

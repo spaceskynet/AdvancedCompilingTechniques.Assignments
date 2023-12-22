@@ -12,6 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#pragma once
+
 #include <llvm/IR/Function.h>
 #include <llvm/Pass.h>
 #include <llvm/Support/raw_ostream.h>
@@ -35,7 +37,8 @@ struct LivenessInfo
 inline raw_ostream &operator<<(raw_ostream &out, const LivenessInfo &info)
 {
     for (std::set<Instruction *>::iterator ii=info.LiveVars.begin(), ie=info.LiveVars.end();
-         ii != ie; ++ ii) {
+         ii != ie; ++ ii) 
+    {
        const Instruction * inst = *ii;
        out << inst->getName();
        out << " ";
@@ -55,7 +58,7 @@ class LivenessVisitor : public DataflowVisitor<struct LivenessInfo>
         }
     }
 
-    void compDFVal(Instruction *inst, LivenessInfo * dfval) override{
+    void compDFVal(Instruction *inst, LivenessInfo * dfval) override {
         if (isa<DbgInfoIntrinsic>(inst)) return;
         dfval->LiveVars.erase(inst);
         for(User::op_iterator oi = inst->op_begin(), oe = inst->op_end();
@@ -76,7 +79,7 @@ class Liveness : public FunctionPass
     Liveness() : FunctionPass(ID) {} 
 
     bool runOnFunction(Function &F) override {
-        F.print(self::errs());
+        // F.print(self::errs());
         LivenessVisitor visitor;
         DataflowResult<LivenessInfo>::Type result;
         LivenessInfo initval;

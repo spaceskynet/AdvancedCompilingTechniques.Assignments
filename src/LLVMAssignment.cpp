@@ -30,8 +30,8 @@
 #include <llvm/Transforms/Utils.h>
 #include <llvm/Transforms/Scalar.h>
 
-
-#include "Liveness.h"
+// #include "Liveness.h"
+#include "PointToAnalysis.h"
 
 using namespace llvm;
 static ManagedStatic<LLVMContext> GlobalContext;
@@ -58,13 +58,25 @@ struct FuncPtrPass : public ModulePass
     static char ID; // Pass identification, replacement for typeid
     FuncPtrPass() : ModulePass(ID) {}
 
-
     bool runOnModule(Module &M) override
     {
-        self::errs() << "Hello: ";
-        self::errs().write_escaped(M.getName()) << '\n';
-        M.print(self::errs(), nullptr);
-        self::errs() << "------------------------------\n";
+        // self::errs() << "Hello: ";
+        // self::errs().write_escaped(M.getName()) << '\n';
+        // M.print(self::errs(), nullptr);
+        // self::errs() << "------------------------------\n";
+        PointToVisitor visitor;
+        PointToInfo inital;
+        
+        for (Function &func : M) {
+            // 跳过名称由 "llvm." 开头的函数
+            if (func.isIntrinsic()) continue;
+            self::errs() << "Function name: " << func.getName() << ".\n";
+            // func.print(self::errs());
+            DataflowResult<PointToInfo>::Type result;
+            compForwardDataflow(&func, &visitor, &result, inital);
+            // printDataflowResult<PointToInfo>(self::errs(), result);
+        }
+        visitor.printResult();
         return false;
     }
 };
@@ -73,8 +85,8 @@ struct FuncPtrPass : public ModulePass
 char FuncPtrPass::ID = 0;
 static RegisterPass<FuncPtrPass> X("funcptrpass", "Print function call instruction");
 
-char Liveness::ID = 0;
-static RegisterPass<Liveness> Y("liveness", "Liveness Dataflow Analysis");
+// char Liveness::ID = 0;
+// static RegisterPass<Liveness> Y("liveness", "Liveness Dataflow Analysis");
 
 cl::opt<std::string> InputFilename(cl::Positional,
                                    cl::desc("<filename>.bc"),
@@ -102,15 +114,14 @@ int main(int argc, char **argv)
     }
 
     llvm::legacy::PassManager Passes;
-#if LLVM_VERSION_MAJOR == 5
+#if LLVM_VERSION_MAJOR >= 5
     Passes.add(new EnableFunctionOptPass());
 #endif
-    ///Transform it to SSA
+    /// Transform it to SSA
     Passes.add(llvm::createPromoteMemoryToRegisterPass());
 
     /// Your pass to print Function and Call Instructions
-    Passes.add(new Liveness());
-    //Passes.add(new FuncPtrPass());
+    // Passes.add(new Liveness());
+    Passes.add(new FuncPtrPass());
     Passes.run(*M.get());
 }
-
