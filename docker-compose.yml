@@ -1,0 +1,17 @@
+version: '3'
+services:
+  llvm-10:
+    image: spaceskynet/llvm-10-ports:10-jammy
+    container_name: llvm-10
+    restart: unless-stopped
+    environment:
+      - LLVM_DIR=/usr/local
+    volumes:
+      - "./Assignment1:/workspace/assign1"
+      - "./Assignment2:/workspace/assign2"
+      - "./Assignment3:/workspace/assign3"
+      - "./.vscode-server:/root/.vscode-server"
+      - "./.vscode:/workspace/.vscode"
+    working_dir: "/workspace"
+    command: '/bin/bash'
+    tty: true
